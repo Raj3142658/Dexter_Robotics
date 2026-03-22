@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Dexter Arm Dashboard
+Comment=Launch Dexter Arm dashboard
+Exec=/bin/bash -lc "source /opt/ros/jazzy/setup.bash && cd /home/raj/dexter_arm_ws && source install/setup.bash && ros2 launch dexter_arm_dashboard dashboard.launch.py"
+Icon=dexter-arm-dashboard
+Terminal=true
+Categories=Robotics;Utility;
+Keywords=robot;ros;ros2;gazebo;moveit;arm;control;
+StartupNotify=true

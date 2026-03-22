@@ -1,0 +1,116 @@
+# joint_limits.yaml allows the dynamics properties specified in the URDF to be overwritten or augmented as needed
+
+# Scaling factors increased from 0.1 to 0.5 for better performance (was too conservative)
+default_velocity_scaling_factor: 0.5
+default_acceleration_scaling_factor: 0.5
+
+# Specific joint properties can be changed with the keys [max_position, min_position, max_velocity, max_acceleration]
+# Joint limits can be turned off with [has_velocity_limits, has_acceleration_limits]
+joint_limits:
+  # Left Arm Joints
+  j1l:
+    has_velocity_limits: true
+    max_velocity: 5.0
+    has_acceleration_limits: true
+    max_acceleration: 2.0
+    has_effort_limits: true
+    max_effort: 343.0 # 35kg servo
+  j2l:
+    has_velocity_limits: true
+    max_velocity: 5.0
+    has_acceleration_limits: true
+    max_acceleration: 2.0
+    has_effort_limits: true
+    max_effort: 343.0 # 35kg servo
+  j3l:
+    has_velocity_limits: true
+    max_velocity: 5.0
+    has_acceleration_limits: true
+    max_acceleration: 3.0
+    has_effort_limits: true
+    max_effort: 343.0 # 35kg servo
+  j4l:
+    has_velocity_limits: true
+    max_velocity: 5.0
+    has_acceleration_limits: true
+    max_acceleration: 3.0
+    has_effort_limits: true
+    max_effort: 147.0 # 15kg servo
+  j5l:
+    has_velocity_limits: true
+    max_velocity: 5.0
+    has_acceleration_limits: true
+    max_acceleration: 3.0
+    has_effort_limits: true
+    max_effort: 147.0 # 15kg servo
+  j6l:
+    has_velocity_limits: true
+    max_velocity: 5.0
+    has_acceleration_limits: true
+    max_acceleration: 3.0
+    has_effort_limits: true
+    max_effort: 147.0 # 15kg servo
+  j7l1:
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+  j7l2:
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+  j7r1:
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+  j7r2:
+    has_velocity_limits: true
+    max_velocity: 0.5
+    has_acceleration_limits: true
+    max_acceleration: 1.0
+
+  # Right Arm Joints
+  j1r:
+    has_velocity_limits: true
+    max_velocity: 5.0
+    has_acceleration_limits: true
+    max_acceleration: 2.0
+    has_effort_limits: true
+    max_effort: 343.0 # 35kg servo
+  j2r:
+    has_velocity_limits: true
+    max_velocity: 5.0
+    has_acceleration_limits: true
+    max_acceleration: 2.0
+    has_effort_limits: true
+    max_effort: 343.0 # 35kg servo
+  j3r:
+    has_velocity_limits: true
+    max_velocity: 5.0
+    has_acceleration_limits: true
+    max_acceleration: 3.0
+    has_effort_limits: true
+    max_effort: 343.0 # 35kg servo
+  j4r:
+    has_velocity_limits: true
+    max_velocity: 5.0
+    has_acceleration_limits: true
+    max_acceleration: 3.0
+    has_effort_limits: true
+    max_effort: 147.0 # 15kg servo
+  j5r:
+    has_velocity_limits: true
+    max_velocity: 5.0
+    has_acceleration_limits: true
+    max_acceleration: 3.0
+    has_effort_limits: true
+    max_effort: 147.0 # 15kg servo
+  j6r:
+    has_velocity_limits: true
+    max_velocity: 5.0
+    has_acceleration_limits: true
+    max_acceleration: 3.0
+    has_effort_limits: true
+    max_effort: 147.0 # 15kg servo

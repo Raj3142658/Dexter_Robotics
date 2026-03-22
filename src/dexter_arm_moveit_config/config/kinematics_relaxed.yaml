@@ -1,0 +1,40 @@
+# Kinematics configuration for dexter_arm
+# RELAXED THRESHOLDS VERSION - For testing/troubleshooting
+# Reference: https://github.com/PickNikRobotics/pick_ik/blob/main/doc/USAGE.md
+
+left_arm:
+  kinematics_solver: pick_ik/PickIkPlugin
+  kinematics_solver_timeout: 0.1 # Increased from 0.05
+  kinematics_solver_attempts: 5 # Increased from 3
+  mode: global # Using global solver with evolutionary algorithm
+  stop_optimization_on_valid_solution: true
+  position_scale: 1.0
+  rotation_scale: 1.0 # Increased from 0.5 - treat position and rotation equally
+  position_threshold: 0.01 # RELAXED: 10mm instead of 1mm
+  orientation_threshold: 0.1 # RELAXED: ~5.7 degrees instead of 0.57
+  cost_threshold: 0.01 # RELAXED: 10x higher tolerance
+  minimal_displacement_weight: 0.0 # Don't penalize joint movement for far goals
+  gd_step_size: 0.0001
+  # Global solver parameters
+  memetic_num_threads: 4 # Use multiple threads
+
+right_arm:
+  kinematics_solver: pick_ik/PickIkPlugin
+  kinematics_solver_timeout: 0.1
+  kinematics_solver_attempts: 5
+  mode: global
+  stop_optimization_on_valid_solution: true
+  position_scale: 1.0
+  rotation_scale: 1.0
+  position_threshold: 0.01
+  orientation_threshold: 0.1
+  cost_threshold: 0.01
+  minimal_displacement_weight: 0.0
+  gd_step_size: 0.0001
+  memetic_num_threads: 4
+
+dual_arm:
+  kinematics_solver: kdl_kinematics_plugin/KDLKinematicsPlugin
+  kinematics_solver_search_resolution: 0.005
+  kinematics_solver_timeout: 3.0
+  kinematics_solver_attempts: 10

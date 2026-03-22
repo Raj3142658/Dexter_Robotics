@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--This does not replace URDF, and is not an extension of URDF.
+    This is a format for representing semantic information about the robot structure.
+    A URDF file must exist for this robot as well, where the joints and the links that are referenced are defined
+-->
+<robot name="dexter_arm">
+    <!--VIRTUAL JOINT: Purpose: this element defines a virtual joint between a robot link and an external frame of reference (considered fixed with respect to the robot)-->
+    <virtual_joint name="virtual_joint" type="fixed" parent_frame="world" child_link="base_link" />
+    <!--GROUPS: Representation of a set of joints and links. This can be useful for specifying DOF to plan for, defining arms, end effectors, etc-->
+    <!--LINKS: When a link is specified, the parent joint of that link (if it exists) is automatically included-->
+    <!--JOINTS: When a joint is specified, the child link of that joint (which will always exist) is automatically included-->
+    <!--CHAINS: When a chain is specified, all the links along the chain (including endpoints) are included in the group. Additionally, all the joints that are parents to included links are also included. This means that joints along the chain and the parent joint of the base link are included in the group-->
+    <!--SUBGROUPS: Groups can also be formed by referencing to already defined group names-->
+    <group name="left_arm">
+        <joint name="base_joint"/>
+        <joint name="j1l"/>
+        <joint name="j2l"/>
+        <joint name="j3l"/>
+        <joint name="j4l"/>
+        <joint name="j5l"/>
+        <joint name="j6l"/>
+    </group>
+    <group name="right_arm">
+        <joint name="base_joint"/>
+        <joint name="j1r"/>
+        <joint name="j2r"/>
+        <joint name="j3r"/>
+        <joint name="j4r"/>
+        <joint name="j5r"/>
+        <joint name="j6r"/>
+    </group>
+    <group name="both_arm">
+        <joint name="base_joint"/>
+        <joint name="j1l"/>
+        <joint name="j2l"/>
+        <joint name="j3l"/>
+        <joint name="j4l"/>
+        <joint name="j5l"/>
+        <joint name="j6l"/>
+        <joint name="j6l"/>
+        <joint name="j1r"/>
+        <joint name="j2r"/>
+        <joint name="j3r"/>
+        <joint name="j4r"/>
+        <joint name="j5r"/>
+        <joint name="j6r"/>
+        <joint name="j6r"/>
+    </group>
+    <group name="left_gripper">
+        <joint name="j7l1"/>
+        <joint name="j7l2"/>
+    </group>
+    <group name="right_gripper">
+        <joint name="j7r1"/>
+        <joint name="j7r2"/>
+    </group>
+
+    <group name="both_grippers">
+        <joint name="j7l1"/>
+        <joint name="j7l2"/>
+        <joint name="j7r1"/>
+        <joint name="j7r2"/>
+    </group>
+    <!--GROUP STATES: Purpose: Define a named state for a particular group, in terms of joint values. This is useful to define states like 'folded arms'-->
+    <group_state name="left_pose_1" group="left_arm">
+        <joint name="j1l" value="0"/>
+        <joint name="j2l" value="0.6332"/>
+        <joint name="j3l" value="0.9108"/>
+        <joint name="j4l" value="-1.4486"/>
+        <joint name="j5l" value="0"/>
+        <joint name="j6l" value="0"/>
+    </group_state>
+    <group_state name="right_pose_1" group="right_arm">
+        <joint name="j1r" value="0"/>
+        <joint name="j2r" value="-0.5812"/>
+        <joint name="j3r" value="-0.4944"/>
+        <joint name="j4r" value="1.1883"/>
+        <joint name="j5r" value="0"/>
+        <joint name="j6r" value="0"/>
+    </group_state>
+     <group_state name="left_home" group="left_arm">
+        <joint name="j1l" value="0"/>
+        <joint name="j2l" value="0"/>
+        <joint name="j3l" value="0"/>
+        <joint name="j4l" value="0"/>
+        <joint name="j5l" value="0"/>
+        <joint name="j6l" value="0"/>
+    </group_state>
+    <group_state name="right_home" group="right_arm">
+        <joint name="j1r" value="0"/>
+        <joint name="j2r" value="0"/>
+        <joint name="j3r" value="0"/>
+        <joint name="j4r" value="0"/>
+        <joint name="j5r" value="0"/>
+        <joint name="j6r" value="0"/>
+    </group_state>
+    <group_state name="both_pose" group="both_arm">
+        <joint name="j1l" value="0.9161"/>
+        <joint name="j1r" value="0.2858"/>
+        <joint name="j2l" value="0.7777"/>
+        <joint name="j2r" value="-0.9997"/>
+        <joint name="j3l" value="0.95"/>
+        <joint name="j3r" value="-0.4079"/>
+        <joint name="j4l" value="-1.5273"/>
+        <joint name="j4r" value="1.1961"/>
+        <joint name="j5l" value="0"/>
+        <joint name="j5r" value="0"/>
+        <joint name="j6l" value="0"/>
+        <joint name="j6r" value="0"/>
+    </group_state>
+     <group_state name="both_home" group="both_arm">
+        <joint name="j1l" value="0"/>
+        <joint name="j1r" value="0"/>
+        <joint name="j2l" value="0"/>
+        <joint name="j2r" value="0"/>
+        <joint name="j3l" value="0"/>
+        <joint name="j3r" value="0"/>
+        <joint name="j4l" value="0"/>
+        <joint name="j4r" value="0"/>
+        <joint name="j5l" value="0"/>
+        <joint name="j5r" value="0"/>
+        <joint name="j6l" value="0"/>
+        <joint name="j6r" value="0"/>
+    </group_state>
+    <group_state name="left_gripper_open" group="left_gripper">
+        <joint name="j7l1" value="0"/>
+        <joint name="j7l2" value="0"/>
+    </group_state>
+    <group_state name="left_gripper_close" group="left_gripper">
+        <joint name="j7l1" value="-0.022"/>
+        <joint name="j7l2" value="-0.022"/>
+    </group_state>
+    <group_state name="right_gripper_open" group="right_gripper">
+        <joint name="j7r1" value="0"/>
+        <joint name="j7r2" value="0"/>
+    </group_state>
+    <group_state name="right_gripper_close" group="right_gripper">
+        <joint name="j7r1" value="-0.022"/>
+        <joint name="j7r2" value="0.022"/>
+    </group_state>
+
+
+    <group_state name="both_grippers_open" group="both_grippers">
+        <joint name="j7l1" value="0"/>
+        <joint name="j7l2" value="0"/>
+        <joint name="j7r1" value="0"/>
+        <joint name="j7r2" value="0"/>
+    </group_state>
+    <group_state name="both_grippers_close" group="both_grippers">
+        <joint name="j7l1" value="-0.022"/>
+        <joint name="j7l2" value="-0.022"/>
+        <joint name="j7r1" value="-0.022"/>
+        <joint name="j7r2" value="0.022"/>
+    </group_state>
+    <!--END EFFECTOR: Purpose: Represent information about an end effector.-->
+    <end_effector name="left_ee" parent_link="tool0_left" group="left_arm" parent_group="left_arm"/>
+    <end_effector name="right_ee" parent_link="tool0_right" group="right_arm" parent_group="right_arm"/>
+    <!--DISABLE COLLISIONS: By default it is assumed that any link of the robot could potentially come into collision with any other link in the robot. This tag disables collision checking between a specified pair of links. -->
+    <disable_collisions link1="base_link" link2="l1l" reason="Adjacent"/>
+    <disable_collisions link1="base_link" link2="l1r" reason="Adjacent"/>
+    <disable_collisions link1="l1l" link2="l1r" reason="Never"/>
+    <disable_collisions link1="l1l" link2="l2l" reason="Adjacent"/>
+    <disable_collisions link1="l1l" link2="l2r" reason="Never"/>
+    <disable_collisions link1="l1l" link2="l3l" reason="Never"/>
+    <disable_collisions link1="l1l" link2="l3r" reason="Never"/>
+    <disable_collisions link1="l1l" link2="l4l" reason="Never"/>
+    <disable_collisions link1="l1l" link2="l4r" reason="Never"/>
+    <disable_collisions link1="l1r" link2="l2l" reason="Never"/>
+    <disable_collisions link1="l1r" link2="l2r" reason="Adjacent"/>
+    <disable_collisions link1="l1r" link2="l3l" reason="Never"/>
+    <disable_collisions link1="l1r" link2="l3r" reason="Never"/>
+    <disable_collisions link1="l1r" link2="l4l" reason="Never"/>
+    <disable_collisions link1="l1r" link2="l4r" reason="Never"/>
+    <disable_collisions link1="l2l" link2="l2r" reason="Never"/>
+    <disable_collisions link1="l2l" link2="l3l" reason="Adjacent"/>
+    <disable_collisions link1="l2l" link2="l3r" reason="Never"/>
+    <disable_collisions link1="l2l" link2="l4l" reason="Never"/>
+    <disable_collisions link1="l2l" link2="l4r" reason="Never"/>
+    <disable_collisions link1="l2r" link2="l3l" reason="Never"/>
+    <disable_collisions link1="l2r" link2="l3r" reason="Adjacent"/>
+    <disable_collisions link1="l2r" link2="l4l" reason="Never"/>
+    <disable_collisions link1="l2r" link2="l4r" reason="Never"/>
+    <disable_collisions link1="l3l" link2="l3r" reason="Never"/>
+    <disable_collisions link1="l3l" link2="l4l" reason="Adjacent"/>
+    <disable_collisions link1="l3l" link2="l5l" reason="Never"/>
+    <disable_collisions link1="l3l" link2="l6l" reason="Never"/>
+    <disable_collisions link1="l3r" link2="l4r" reason="Adjacent"/>
+    <disable_collisions link1="l3r" link2="l5r" reason="Never"/>
+    <disable_collisions link1="l3r" link2="l6r" reason="Never"/>
+    <disable_collisions link1="l4l" link2="l5l" reason="Adjacent"/>
+    <disable_collisions link1="l4l" link2="l6l" reason="Never"/>
+    <disable_collisions link1="l4r" link2="l5r" reason="Adjacent"/>
+    <disable_collisions link1="l4r" link2="l6r" reason="Never"/>
+    <disable_collisions link1="l5l" link2="l6l" reason="Adjacent"/>
+    <disable_collisions link1="l5r" link2="l6r" reason="Adjacent"/>
+    <disable_collisions link1="l6l_finger" link2="l6l_rail" reason="Adjacent"/>
+    <disable_collisions link1="l6l_finger2" link2="l6l_rail" reason="Adjacent"/>
+    <disable_collisions link1="l6r_finger" link2="l6r_rail" reason="Adjacent"/>
+    <disable_collisions link1="l6r_finger2" link2="l6r_rail" reason="Adjacent"/>
+    <disable_collisions link1="l6r_finger2" link2="l6r_base1" reason="Default"/>
+    <disable_collisions link1="l6r_finger2" link2="l6r" reason="Default"/>
+    <disable_collisions link1="l6r_finger2" link2="tool0_right" reason="Default"/>
+</robot>

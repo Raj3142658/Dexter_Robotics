@@ -1,0 +1,238 @@
+layer_order:
+  - connectors
+  - layer_1
+  - display_panels
+  - layer_2
+  - layer_3
+  - video
+opacity_defaults:
+  shapes: 0.5
+  panels: 0.5
+  video: 0.7
+  icons: 1.0
+  connectors: 1.0
+display_panels:
+  - title: DEXTER ARM
+    value: ""
+    data_source: Title Banner
+    subtitle_text: ROBOTIC MANIPULATION SYSTEM
+    hover_text: "⚙ DEXTER ARM  ━━━━━━━━━━━━━━━━━━━━\n\n▸ Platform     ROS 2 Jazzy · Gazebo Harmonic\n▸ Simulation   MoveIt 2 · RViz2 · Gazebo Physics\n▸ Planning     OMPL · Servo · MoveGroup\n\n◈ Hardware     ESP32 Controller + micro-ROS Agent\n◈ Control      Real-time Joint via Serial/WiFi\n◈ Firmware     Flash & OTA Update Support\n\n◇ Dashboard    PyQt6 HUD Control Interface\n◇ Trajectory   FK/IK Workspace Generation\n◇ Monitor      System Process & Resource Tracking"
+    title_color: "#00F3FF"
+    font_family: Orbitron
+    font_size: 24
+    visible: true
+    x: 0
+    y: 0
+    width: 1280
+    height: 70
+    value_color: "#FFFFFF"
+icon_groups: []
+custom_icons: []
+active_counter:
+  height: 60
+  opacity: 1.0
+  width: 80
+  x: 171
+  y: 294
+combo1:
+  height: 165
+  width: 161
+  x: 1365
+  y: 600
+combo2:
+  height: 165
+  width: 161
+  x: 1292
+  y: 413
+combo3:
+  height: 165
+  width: 161
+  x: 1372
+  y: 252
+displaybar:
+  height: 159
+  opacity: 1.0
+  width: 356
+  x: 464
+  y: 79
+extra_glass_circle_0:
+  height: 100
+  opacity: 1.0
+  width: 97
+  x: 116
+  y: 368
+extra_glass_circle_1:
+  height: 100
+  opacity: 1.0
+  width: 97
+  x: 90
+  y: 271
+extra_glass_circle_10:
+  height: 100
+  opacity: 1.0
+  width: 97
+  x: 250
+  y: 50
+extra_glass_circle_2:
+  height: 100
+  opacity: 1.0
+  width: 97
+  x: 135
+  y: 262
+extra_glass_circle_3:
+  height: 100
+  opacity: 1.0
+  width: 97
+  x: 288
+  y: 248
+extra_glass_circle_4:
+  height: 100
+  opacity: 1.0
+  width: 97
+  x: 155
+  y: 295
+extra_glass_circle_5:
+  height: 100
+  opacity: 1.0
+  width: 97
+  x: 150
+  y: 50
+extra_glass_circle_6:
+  height: 100
+  opacity: 1.0
+  width: 97
+  x: 170
+  y: 50
+extra_glass_circle_7:
+  height: 100
+  opacity: 1.0
+  width: 97
+  x: 102
+  y: 157
+extra_glass_circle_8:
+  height: 100
+  opacity: 1.0
+  width: 97
+  x: 210
+  y: 50
+extra_glass_circle_9:
+  height: 100
+  opacity: 1.0
+  width: 97
+  x: 266
+  y: 45
+firmware:
+  height: 142
+  width: 139
+  x: 380
+  y: 638
+gazebo:
+  height: 165
+  width: 161
+  x: 62
+  y: 548
+gazebo_text:
+  height: 70
+  opacity: 1.0
+  width: 263
+  x: 127
+  y: 821
+glass_circle_1:
+  height: 180
+  opacity: 0.8000000000000002
+  width: 175
+  x: 270
+  y: 87
+glass_circle_2:
+  height: 180
+  opacity: 1.0
+  width: 175
+  x: 482
+  y: 677
+glass_oval:
+  height: 64
+  opacity: 1.0
+  width: 180
+  x: 260
+  y: 440
+hardware_logo:
+  height: 355
+  opacity: 1.0
+  width: 302
+  x: 673
+  y: 645
+kill:
+  height: 142
+  width: 139
+  x: 90
+  y: 483
+microros_logo:
+  height: 81
+  opacity: 1.0
+  width: 84
+  x: 471
+  y: 394
+microros_text:
+  height: 123
+  opacity: 1.0
+  width: 266
+  x: 475
+  y: 485
+monitor:
+  height: 142
+  width: 139
+  x: 492
+  y: 260
+moveit_logo:
+  height: 106
+  opacity: 1.0
+  width: 80
+  x: 301
+  y: 325
+moveit_text:
+  height: 106
+  opacity: 1.0
+  width: 416
+  x: 341
+  y: 400
+rviz:
+  height: 170
+  width: 167
+  x: 249
+  y: 381
+settings:
+  height: 849
+  width: 849
+  x: 719
+  y: 93
+sidebar:
+  height: 812
+  opacity: 1.0
+  width: 560
+  x: 1171
+  y: 118
+title_label:
+  height: 100
+  opacity: 1.0
+  width: 480
+  x: 331
+  y: 958
+trajectory:
+  height: 142
+  width: 139
+  x: 645
+  y: 246
+wg:
+  height: 142
+  width: 139
+  x: 208
+  y: 682
+window:
+  height: 1131
+  maximized: true
+  width: 1854
+wv:
+  height: 142
+  width: 139
+  x: 223
+  y: 891

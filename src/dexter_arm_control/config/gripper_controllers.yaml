@@ -1,0 +1,27 @@
+controller_manager:
+  ros__parameters:
+    # Left Gripper Controller - controls left finger sliders
+    left_gripper_controller:
+      type: forward_command_controller/ForwardCommandController
+
+    # Right Gripper Controller - controls right finger sliders
+    right_gripper_controller:
+      type: forward_command_controller/ForwardCommandController
+
+# Left Gripper Controller Configuration
+left_gripper_controller:
+  ros__parameters:
+    joints:
+      - j6l_finger_slide
+      - j6l_finger2_slide
+
+    interface_name: position
+
+# Right Gripper Controller Configuration
+right_gripper_controller:
+  ros__parameters:
+    joints:
+      - j6r_finger_slide
+      - j6r_finger2_slide
+
+    interface_name: position

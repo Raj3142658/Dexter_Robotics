@@ -1,0 +1,98 @@
+workspace: /home/raj/dexter_arm_ws
+microros_workspace: /home/raj/microros_ws
+esp32_port: /dev/ttyUSB0
+esp32_baud: 115200
+buttons:
+  rviz:
+    name: RViz
+    command: ros2 launch dexter_arm_description view_model.launch.py
+    icon: rviz2.png
+    terminal: true
+  gazebo:
+    name: Gazebo
+    command: ros2 launch dexter_arm_gazebo gazebo.launch.py
+    icon: gazebo.png
+    text: Gazebo_icon.png
+    terminal: true
+combos:
+  moveit_demo:
+    name: MoveIt + RViz
+    command: ros2 launch dexter_arm_moveit_config demo.launch.py
+    glow_icons:
+    - rviz2.png
+    - moveit_icon.png
+    terminal: true
+  sim:
+    name: Full Simulation
+    command: ros2 launch dexter_arm_gazebo gazebo_bringup.launch.py
+    glow_icons:
+    - gazebo.png
+    - moveit_icon.png
+    - rviz2.png
+    terminal: true
+  hardware_full:
+    name: Hardware Full System
+    action: open_hardware_full_window
+    command: ros2 launch dexter_arm_hardware hardware_bringup.launch.py
+    glow_icons:
+    - hardware_interface.png
+    - microros_icon.png
+    requires_microros: true
+    terminal: true
+utilities:
+  kill_all:
+    name: Kill All Processes
+    icon: killprocess.png
+    commands:
+    - pkill -9 -f ros2
+    - pkill -9 -f gz
+    - pkill -9 -f gazebo
+    - pkill -9 -f rviz
+    - pkill -9 -f move_group
+    - pkill -9 -f controller_manager
+    - pkill -9 -f micro_ros_agent
+    confirm: true
+  trajectory:
+    name: Trajectory System
+    icon: trajectory.png.png
+    action: open_trajectory_system
+    # command: ros2 launch dexter_arm_trajectory_system trajectory_system.launch.py
+    # terminal: true
+  system_monitor:
+    name: System Monitor
+    icon: system_monitor.png
+    action: open_system_monitor
+  firmware:
+    name: Flash Firmware
+    icon: firmware.png
+    action: open_firmware_dialog
+  waypoint_generator:
+    name: Waypoint Generator
+    icon: wg.png
+    action: open_waypoint_generator
+  waypoint_visualizer:
+    name: Waypoint Visualizer
+    icon: wv.png
+    action: open_waypoint_visualizer
+connectors:
+- points:
+  - - 378.0
+    - 254.0
+  - - 566.0
+    - 358.0
+  - - 803.0
+    - 354.0
+- points:
+  - - 444.0
+    - 438.0
+  - - 575.0
+    - 394.0
+  - - 589.0
+    - 438.0
+  - - 773.0
+    - 357.0
+display_panels:
+- title: sas
+  value: '1'
+  x: 379
+  y: 282

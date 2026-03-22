@@ -1,0 +1,56 @@
+# MoveIt uses this configuration for controller management
+
+moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
+
+# Trajectory Execution Parameters
+trajectory_execution:
+  allowed_execution_duration_scaling: 1.2
+  allowed_goal_duration_margin: 0.5
+  allowed_start_tolerance: 0.05 # Increased from default 0.01 for Gazebo simulation
+
+moveit_simple_controller_manager:
+  controller_names:
+    - left_arm_controller
+    - right_arm_controller
+    - left_arm_gripper
+    - right_arm_gripper
+
+  left_arm_controller:
+    type: FollowJointTrajectory
+    joints:
+      - j1l
+      - j2l
+      - j3l
+      - j4l
+      - j5l
+      - j6l
+    action_ns: follow_joint_trajectory
+    default: true
+
+  right_arm_controller:
+    type: FollowJointTrajectory
+    joints:
+      - j1r
+      - j2r
+      - j3r
+      - j4r
+      - j5r
+      - j6r
+    action_ns: follow_joint_trajectory
+    default: true
+
+  left_arm_gripper:
+    type: FollowJointTrajectory
+    joints:
+      - j7l1
+      - j7l2
+    action_ns: follow_joint_trajectory
+    default: false
+
+  right_arm_gripper:
+    type: FollowJointTrajectory
+    joints:
+      - j7r1
+      - j7r2
+    action_ns: follow_joint_trajectory
+    default: false

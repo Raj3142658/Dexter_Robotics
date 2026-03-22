@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dexter Control Center</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <h1>Dexter Control Center</h1>
+      <p class="subtitle">Operator workspace</p>
+
+      <nav class="tabs">
+        <button class="tab-btn active" data-tab="model">Model Viewer</button>
+        <button class="tab-btn" data-tab="planner">Motion Planner</button>
+        <button class="tab-btn" data-tab="simulation">Simulation Studio</button>
+        <button class="tab-btn" data-tab="hardware">Hardware Console</button>
+      </nav>
+
+      <div class="sidebar-actions">
+        <button id="refreshAllBtn" class="ghost">Refresh All Status</button>
+        <button id="exitAppBtn" class="danger">Exit Application</button>
+      </div>
+    </aside>
+
+    <main class="content">
+      <section class="tab-panel active" id="tab-model">
+        <h2>Model Viewer</h2>
+        <p class="hint">Visualize robot model in RViz without controllers.</p>
+        <div class="controls">
+          <label>GUI
+            <select id="rvizGui">
+              <option value="true" selected>true</option>
+              <option value="false">false</option>
+            </select>
+          </label>
+          <button id="rvizStart">Start</button>
+          <button id="rvizStop">Stop</button>
+          <button id="rvizStatusBtn" class="ghost">Status</button>
+        </div>
+        <pre id="rvizStatus">Waiting for status...</pre>
+        <pre id="modelLog">No model events yet.</pre>
+      </section>
+
+      <section class="tab-panel" id="tab-planner">
+        <h2>Motion Planner</h2>
+        <p class="hint">MoveIt planning stack with RViz visualization.</p>
+        <div class="controls">
+          <label>Use Sim Time
+            <select id="moveitUseSimTime">
+              <option value="false" selected>false</option>
+              <option value="true">true</option>
+            </select>
+          </label>
+          <button id="moveitStart">Start</button>
+          <button id="moveitStop">Stop</button>
+          <button id="moveitStatusBtn" class="ghost">Status</button>
+        </div>
+        <pre id="moveitStatus">Waiting for status...</pre>
+        <pre id="plannerLog">No planner events yet.</pre>
+      </section>
+
+      <section class="tab-panel" id="tab-simulation">
+        <h2>Simulation Studio</h2>
+        <p class="hint">Run Gazebo-only or complete simulation stack.</p>
+
+        <h3>Gazebo Core</h3>
+        <div class="controls">
+          <label>GUI
+            <select id="gazeboGui">
+              <option value="true" selected>true</option>
+              <option value="false">false</option>
+            </select>
+          </label>
+          <button id="gazeboStart">Start Gazebo</button>
+          <button id="gazeboStop">Stop Gazebo</button>
+          <button id="gazeboStatusBtn" class="ghost">Status</button>
+        </div>
+        <pre id="gazeboStatus">Waiting for status...</pre>
+
+        <h3>Integrated Stack</h3>
+        <div class="controls">
+          <label>Use RViz
+            <select id="fullStackUseRviz">
+              <option value="true" selected>true</option>
+              <option value="false">false</option>
+            </select>
+          </label>
+          <label>Load MoveIt
+            <select id="fullStackLoadMoveit">
+              <option value="true" selected>true</option>
+              <option value="false">false</option>
+            </select>
+          </label>
+          <button id="fullStackStart">Start Full Simulation</button>
+          <button id="fullStackStop">Stop Full Simulation</button>
+          <button id="fullStackStatusBtn" class="ghost">Status</button>
+        </div>
+        <pre id="fullStackStatus">Waiting for status...</pre>
+        <pre id="simulationLog">No simulation events yet.</pre>
+      </section>
+
+      <section class="tab-panel" id="tab-hardware">
+        <h2>Hardware Console</h2>
+        <p class="hint">Micro-ROS session bootstrap and real-arm bringup.</p>
+
+        <div class="controls">
+          <label>Transport
+            <select id="hardwareTransport">
+              <option value="serial" selected>Serial</option>
+              <option value="udp">UDP</option>
+            </select>
+          </label>
+          <label id="serialField">Serial Device
+            <input id="hardwareSerialDevice" type="text" value="/dev/ttyUSB0" placeholder="/dev/ttyUSB0">
+          </label>
+          <label id="udpField" style="display:none;">UDP Port
+            <input id="hardwareUdpPort" type="number" min="1" max="65535" value="8888" placeholder="8888">
+          </label>
+        </div>
+
+        <div class="controls">
+          <label>Use RViz
+            <select id="hardwareUseRviz">
+              <option value="true" selected>true</option>
+              <option value="false">false</option>
+            </select>
+          </label>
+          <label>Load MoveIt
+            <select id="hardwareLoadMoveit">
+              <option value="true" selected>true</option>
+              <option value="false">false</option>
+            </select>
+          </label>
+          <label>Timeout
+            <input id="hardwareAgentTimeout" type="number" min="10" max="120" value="30">
+          </label>
+          <label>Retries
+            <input id="hardwareMaxRetries" type="number" min="1" max="5" value="3">
+          </label>
+        </div>
+
+        <div class="controls">
+          <button id="hardwareStart">Start Hardware</button>
+          <button id="hardwareStop">Stop Hardware</button>
+          <button id="hardwareReset" class="ghost">Reset Session</button>
+          <button id="hardwareStatusBtn" class="ghost">Status</button>
+        </div>
+
+        <div class="session-state">Session State: <span id="hardwareSessionState">Idle</span></div>
+        <pre id="hardwareSessionHint">Waiting for action.</pre>
+        <pre id="hardwareSessionLog">No session logs yet.</pre>
+        <pre id="hardwareStatus">Waiting for status...</pre>
+      </section>
+
+      <section class="status-bar">
+        <h3>System Snapshot</h3>
+        <pre id="status">Loading...</pre>
+        <h3>Event Stream</h3>
+        <pre id="events">Waiting for events...</pre>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Dexter Control Center
+Comment=Start Dexter middleware + operator UI
+Exec=/bin/bash -lc '/home/raj/Dexter_Robotics/scripts/launch_control_center.sh'
+Icon=utilities-terminal
+Terminal=false
+Categories=Robotics;Utility;
+StartupNotify=true

@@ -1,0 +1,3 @@
+# The occupancy map monitor complains if this parameter is missing
+# Defining it as empty satisfies the check without enabling any sensors
+sensors: []

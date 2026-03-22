@@ -1,0 +1,9 @@
+<library path="dexter_arm_hardware">
+  <class name="dexter_arm_hardware/DexterHardwareInterface"
+         type="dexter_arm_hardware::DexterHardwareInterface"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Hardware interface for Dexter Arm using ESP32 + micro-ROS
+    </description>
+  </class>
+</library>

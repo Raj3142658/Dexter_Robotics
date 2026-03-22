@@ -1,0 +1,18 @@
+arm: 'right'
+shape:
+  type: 'square'
+  length: 0.06
+  side_length: 0.06
+  n_points: 90
+reference_point:
+  x: 0.25
+  y: 0.23
+  z: 0.2
+surface_normal:
+  x: 0.0
+  y: 0.0
+  z: 1.0
+tool_tilt:
+  x: 0.0
+  y: 0.0
+  z: 0.0
