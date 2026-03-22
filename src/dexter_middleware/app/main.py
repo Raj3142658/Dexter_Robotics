@@ -409,18 +409,19 @@ def _validate_xy_shape_request(arm: str, shape: str, params: dict[str, float], r
     if not points:
         return [f"Unsupported shape '{shape}'"]
 
+    eps = 1e-6
     for idx, (px, py, pz) in enumerate(points):
-        if px < x_lo or px > x_hi:
+        if px < (x_lo - eps) or px > (x_hi + eps):
             violations.append(f"Waypoint {idx}: x={px:.3f} out of range [{x_lo:.3f}, {x_hi:.3f}]")
             break
-        if py < y_lo or py > y_hi:
+        if py < (y_lo - eps) or py > (y_hi + eps):
             violations.append(f"Waypoint {idx}: y={py:.3f} out of range [{y_lo:.3f}, {y_hi:.3f}]")
             break
-        if pz < z_lo or pz > z_hi:
+        if pz < (z_lo - eps) or pz > (z_hi + eps):
             violations.append(f"Waypoint {idx}: z={pz:.3f} out of range [{z_lo:.3f}, {z_hi:.3f}]")
             break
         dist = math.sqrt((px - sx) ** 2 + (py - sy) ** 2 + (pz - sz) ** 2)
-        if dist > reach * ratio:
+        if dist > (reach * ratio + eps):
             violations.append(
                 f"Waypoint {idx}: distance {dist:.3f} exceeds {ratio*100:.0f}% reach ({reach:.3f}m)"
             )
@@ -445,6 +446,74 @@ def _default_safe_reference(arm: str) -> tuple[float, float, float]:
     ry = _clamp(sy, y_lo, y_hi)
     rz = _clamp(0.22, z_lo, z_hi)
     return rx, ry, rz
+
+
+def _shape_params_from_config(shape_type: str, shape_cfg: dict[str, Any]) -> dict[str, float]:
+    """Normalize UI/bridge shape keys into safety-check parameter keys."""
+    shape = shape_type.lower().strip()
+    out: dict[str, float] = {}
+
+    def _num(key: str, default: float = 0.0) -> float:
+        try:
+            return float(shape_cfg.get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    if shape == "circle":
+        out["radius"] = _num("radius", 0.08)
+    elif shape == "line":
+        out["length"] = _num("length", 0.15)
+    elif shape == "rectangle":
+        out["width"] = _num("width", 0.12)
+        out["height"] = _num("height", 0.08)
+    elif shape == "arc":
+        out["radius"] = _num("radius", 0.10)
+        if "angle" in shape_cfg:
+            out["angle"] = _num("angle", 180.0)
+        else:
+            start = _num("start_angle_deg", -90.0)
+            end = _num("end_angle_deg", 90.0)
+            out["angle"] = abs(end - start)
+    elif shape == "zigzag":
+        out["length"] = _num("length", 0.15)
+        out["width"] = _num("zag_width", _num("width", 0.04))
+        out["steps"] = _num("steps", 4.0)
+    elif shape == "spiral":
+        out["r1"] = _num("inner_radius", _num("r1", 0.03))
+        out["r2"] = _num("outer_radius", _num("r2", 0.10))
+        out["turns"] = _num("turns", 2.0)
+
+    return out
+
+
+def _preflight_shape_generation_config(config: dict[str, Any]) -> tuple[str, str, dict[str, float], float, float, float, list[str]]:
+    """Extract generation fields and return (arm, surface, params, ref_x, ref_y, ref_z, violations)."""
+    arm = str(config.get("arm", "left")).lower().strip()
+    surface_cfg = config.get("surface") if isinstance(config.get("surface"), dict) else {}
+    normal = surface_cfg.get("normal", [0, 0, 1])
+    surface = "XY"
+    if isinstance(normal, list) and len(normal) >= 3:
+        try:
+            nx, ny, nz = float(normal[0]), float(normal[1]), float(normal[2])
+            if abs(nx) > 0.5 and abs(ny) < 0.5 and abs(nz) < 0.5:
+                surface = "YZ"
+            elif abs(ny) > 0.5 and abs(nx) < 0.5 and abs(nz) < 0.5:
+                surface = "XZ"
+            elif abs(nz) > 0.5 and abs(nx) < 0.5 and abs(ny) < 0.5:
+                surface = "XY"
+        except (TypeError, ValueError):
+            pass
+
+    ref = config.get("reference_point") if isinstance(config.get("reference_point"), dict) else {}
+    ref_x = float(ref.get("x", 0.25))
+    ref_y = float(ref.get("y", 0.0))
+    ref_z = float(ref.get("z", 0.2))
+
+    shape_cfg = config.get("shape") if isinstance(config.get("shape"), dict) else {}
+    shape = str(shape_cfg.get("type", "")).lower().strip()
+    params = _shape_params_from_config(shape, shape_cfg)
+    violations = _validate_xy_shape_request(arm, shape, params, ref_x, ref_y, ref_z)
+    return arm, surface, params, ref_x, ref_y, ref_z, violations
 
 
 def _kill_pid_gracefully(pid: int) -> str:
@@ -902,6 +971,20 @@ async def trajectory_generate(req: TrajectoryGenerateRequest) -> dict:
     config = req.config if isinstance(req.config, dict) else {}
     if not config:
         raise HTTPException(status_code=400, detail="Missing trajectory generation config")
+
+    arm, surface, _params, _rx, _ry, _rz, violations = _preflight_shape_generation_config(config)
+    supported_surfaces = TRAJECTORY_SAFETY.get("defaults", {}).get("supported_surfaces", ["XY"])
+    if surface not in supported_surfaces:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Surface {surface} not supported in Phase 7 MVP. Allowed: {', '.join(supported_surfaces)}",
+        )
+
+    if violations:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Safety preflight failed for {arm} arm: {violations[0]}",
+        )
 
     return _bridge_json_request("POST", "/generate", payload=config, timeout_sec=20.0)
 
