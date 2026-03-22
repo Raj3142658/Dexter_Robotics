@@ -12,7 +12,8 @@ const hardwareStatusEl = document.getElementById("hardwareStatus");
 
 const modelLogEl = document.getElementById("modelLog");
 const plannerLogEl = document.getElementById("plannerLog");
-const simulationLogEl = document.getElementById("simulationLog");
+const gazeboLogEl = document.getElementById("gazeboLog");
+const fullStackLogEl = document.getElementById("fullStackLog");
 
 const hardwareSessionStateEl = document.getElementById("hardwareSessionState");
 const hardwareSessionHintEl = document.getElementById("hardwareSessionHint");
@@ -37,7 +38,8 @@ function logPanel(panel, line) {
   const map = {
     model: modelLogEl,
     planner: plannerLogEl,
-    simulation: simulationLogEl,
+    gazebo: gazeboLogEl,
+    fullstack: fullStackLogEl,
   };
   if (map[panel]) {
     prependLine(map[panel], line);
@@ -251,44 +253,53 @@ function wirePlanner() {
   });
 }
 
-function wireSimulation() {
+function wireGazebo() {
   document.getElementById("gazeboStart").addEventListener("click", async () => {
     await callApi("/ros/gazebo/start", {
       gui: document.getElementById("gazeboGui").value === "true",
     });
     await getGazeboStatus();
-    logPanel("simulation", "Gazebo start requested");
+    logPanel("gazebo", "Gazebo start requested");
   });
 
   document.getElementById("gazeboStop").addEventListener("click", async () => {
     await callApi("/ros/gazebo/stop");
     await getGazeboStatus();
-    logPanel("simulation", "Gazebo stop requested");
+    logPanel("gazebo", "Gazebo stop requested");
   });
 
   document.getElementById("gazeboStatusBtn").addEventListener("click", async () => {
     await getGazeboStatus();
-    logPanel("simulation", "Gazebo status refreshed");
+    logPanel("gazebo", "Gazebo status refreshed");
   });
+}
 
+function wireFullStack() {
   document.getElementById("fullStackStart").addEventListener("click", async () => {
+    const ok = window.confirm(
+      "Starting Full System will stop active RViz-only, MoveIt-only, and Gazebo-only sessions. Continue?"
+    );
+    if (!ok) {
+      return;
+    }
+
     await callApi("/ros/full-stack/start", {
       use_rviz: document.getElementById("fullStackUseRviz").value === "true",
       load_moveit: document.getElementById("fullStackLoadMoveit").value === "true",
     });
     await getFullStackStatus();
-    logPanel("simulation", "Full simulation start requested");
+    logPanel("fullstack", "Full simulation start requested");
   });
 
   document.getElementById("fullStackStop").addEventListener("click", async () => {
     await callApi("/ros/full-stack/stop");
     await getFullStackStatus();
-    logPanel("simulation", "Full simulation stop requested");
+    logPanel("fullstack", "Full simulation stop requested");
   });
 
   document.getElementById("fullStackStatusBtn").addEventListener("click", async () => {
     await getFullStackStatus();
-    logPanel("simulation", "Full simulation status refreshed");
+    logPanel("fullstack", "Full simulation status refreshed");
   });
 }
 
@@ -298,6 +309,13 @@ function wireHardware() {
   });
 
   document.getElementById("hardwareStart").addEventListener("click", async () => {
+    const ok = window.confirm(
+      "Starting Hardware mode will stop all simulation sessions (RViz/MoveIt/Gazebo/Full System). Continue?"
+    );
+    if (!ok) {
+      return;
+    }
+
     startHardwarePolling();
     await callApi("/ros/hardware/start", {
       transport: document.getElementById("hardwareTransport").value,
@@ -383,7 +401,8 @@ async function initialize() {
   wireTabs();
   wireModelViewer();
   wirePlanner();
-  wireSimulation();
+  wireGazebo();
+  wireFullStack();
   wireHardware();
   wireGlobalButtons();
   updateHardwareTransportFields();

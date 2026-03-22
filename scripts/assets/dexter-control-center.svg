@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Dexter Control Center icon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0e7c86"/>
+      <stop offset="100%" stop-color="#0a5f67"/>
+    </linearGradient>
+    <linearGradient id="arm" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f3f8ff"/>
+      <stop offset="100%" stop-color="#d8e7ff"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="24" y="24" width="464" height="464" rx="104" fill="url(#bg)"/>
+
+  <rect x="96" y="352" width="320" height="44" rx="14" fill="#113847" opacity="0.65"/>
+  <circle cx="156" cy="374" r="14" fill="#c8f4ff"/>
+  <circle cx="256" cy="374" r="14" fill="#9fe5f3"/>
+  <circle cx="356" cy="374" r="14" fill="#c8f4ff"/>
+
+  <circle cx="156" cy="304" r="30" fill="url(#arm)"/>
+  <circle cx="240" cy="246" r="26" fill="url(#arm)"/>
+  <circle cx="320" cy="188" r="24" fill="url(#arm)"/>
+
+  <rect x="148" y="275" width="104" height="20" rx="10" transform="rotate(-34 200 285)" fill="url(#arm)"/>
+  <rect x="229" y="220" width="94" height="18" rx="9" transform="rotate(-36 276 229)" fill="url(#arm)"/>
+
+  <rect x="323" y="164" width="66" height="18" rx="9" transform="rotate(32 356 173)" fill="#e5f7ff"/>
+  <circle cx="390" cy="186" r="17" fill="#e5f7ff"/>
+
+  <circle cx="156" cy="304" r="10" fill="#0d5764"/>
+  <circle cx="240" cy="246" r="9" fill="#0d5764"/>
+  <circle cx="320" cy="188" r="8" fill="#0d5764"/>
+
+  <path d="M116 130 L156 88 L198 130" fill="none" stroke="#c8f4ff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M208 130 L248 88 L290 130" fill="none" stroke="#9fe5f3" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M300 130 L340 88 L382 130" fill="none" stroke="#c8f4ff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

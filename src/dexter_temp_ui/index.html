@@ -15,7 +15,8 @@
       <nav class="tabs">
         <button class="tab-btn active" data-tab="model">Model Viewer</button>
         <button class="tab-btn" data-tab="planner">Motion Planner</button>
-        <button class="tab-btn" data-tab="simulation">Simulation Studio</button>
+        <button class="tab-btn" data-tab="gazebo">Gazebo Studio</button>
+        <button class="tab-btn" data-tab="fullstack">Full System Sim</button>
         <button class="tab-btn" data-tab="hardware">Hardware Console</button>
       </nav>
 
@@ -62,11 +63,10 @@
         <pre id="plannerLog">No planner events yet.</pre>
       </section>
 
-      <section class="tab-panel" id="tab-simulation">
-        <h2>Simulation Studio</h2>
-        <p class="hint">Run Gazebo-only or complete simulation stack.</p>
+      <section class="tab-panel" id="tab-gazebo">
+        <h2>Gazebo Studio</h2>
+        <p class="hint">Run Gazebo-only simulation world and controllers.</p>
 
-        <h3>Gazebo Core</h3>
         <div class="controls">
           <label>GUI
             <select id="gazeboGui">
@@ -79,8 +79,13 @@
           <button id="gazeboStatusBtn" class="ghost">Status</button>
         </div>
         <pre id="gazeboStatus">Waiting for status...</pre>
+        <pre id="gazeboLog">No Gazebo events yet.</pre>
+      </section>
 
-        <h3>Integrated Stack</h3>
+      <section class="tab-panel" id="tab-fullstack">
+        <h2>Full System Simulation</h2>
+        <p class="hint">Run integrated Gazebo + MoveIt + RViz simulation stack.</p>
+
         <div class="controls">
           <label>Use RViz
             <select id="fullStackUseRviz">
@@ -99,7 +104,7 @@
           <button id="fullStackStatusBtn" class="ghost">Status</button>
         </div>
         <pre id="fullStackStatus">Waiting for status...</pre>
-        <pre id="simulationLog">No simulation events yet.</pre>
+        <pre id="fullStackLog">No full-system events yet.</pre>
       </section>
 
       <section class="tab-panel" id="tab-hardware">

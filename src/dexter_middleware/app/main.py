@@ -42,6 +42,9 @@ hardware_lock = asyncio.Lock()
 hardware_service = HardwareBootstrapService()
 hardware_bootstrap_task: asyncio.Task | None = None
 
+LAUNCH_TRANSITION_TIMEOUT_SEC = 10.0
+LAUNCH_TRANSITION_COOLDOWN_SEC = 2.0
+
 
 async def broadcast(event: EventMessage) -> None:
     if not clients:
@@ -102,6 +105,88 @@ def snapshot() -> dict:
         },
         "hardware": hardware_status,
     }
+
+
+def _hardware_bootstrap_in_progress() -> bool:
+    return hardware_bootstrap_task is not None and not hardware_bootstrap_task.done()
+
+
+def _launch_conflicts() -> dict[str, bool]:
+    rviz_running = rviz_service.status().running
+    moveit_running = moveit_service.status().running
+    gazebo_running = gazebo_service.status().running
+    full_stack_running = full_stack_service.status().running
+    hardware_status = hardware_service.status()
+    hardware_running = bool(hardware_status.get("agent_running") or hardware_status.get("launch_running"))
+    return {
+        "rviz": rviz_running,
+        "moveit": moveit_running,
+        "gazebo": gazebo_running,
+        "full_stack": full_stack_running,
+        "hardware": hardware_running,
+        "hardware_bootstrap": _hardware_bootstrap_in_progress(),
+    }
+
+
+async def _wait_for_sessions_stopped(session_names: list[str], timeout_sec: float) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout_sec
+    while asyncio.get_running_loop().time() < deadline:
+        conflicts = _launch_conflicts()
+        still_running = [name for name in session_names if conflicts.get(name, False)]
+        if not still_running:
+            return
+        await asyncio.sleep(0.25)
+
+    conflicts = _launch_conflicts()
+    still_running = [name for name in session_names if conflicts.get(name, False)]
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            "Launch transition timed out while waiting for previous sessions to stop: "
+            + ", ".join(still_running)
+        ),
+    )
+
+
+async def _preempt_simulation_for(target_name: str, include_full_stack: bool) -> None:
+    stopped: list[str] = []
+
+    async with moveit_lock:
+        if moveit_service.status().running:
+            moveit_service.stop()
+            stopped.append("moveit")
+
+    async with rviz_lock:
+        if rviz_service.status().running:
+            rviz_service.stop()
+            stopped.append("rviz")
+
+    async with gazebo_lock:
+        if gazebo_service.status().running:
+            gazebo_service.stop()
+            stopped.append("gazebo")
+
+    if include_full_stack:
+        async with full_stack_lock:
+            if full_stack_service.status().running:
+                full_stack_service.stop()
+                stopped.append("full_stack")
+
+    if stopped:
+        await broadcast(
+            EventMessage(
+                type="launch_transition",
+                message=f"Preparing {target_name}: stopped conflicting sessions ({', '.join(stopped)})",
+                payload=snapshot(),
+            )
+        )
+
+    wait_for = ["moveit", "rviz", "gazebo"]
+    if include_full_stack:
+        wait_for.append("full_stack")
+
+    await _wait_for_sessions_stopped(wait_for, timeout_sec=LAUNCH_TRANSITION_TIMEOUT_SEC)
+    await asyncio.sleep(LAUNCH_TRANSITION_COOLDOWN_SEC)
 
 
 async def _run_trajectory(name: str, duration_sec: float) -> None:
@@ -284,6 +369,12 @@ async def rviz_status() -> dict:
 
 @app.post("/ros/rviz/start")
 async def rviz_start(req: RvizStartRequest) -> dict:
+    conflicts = _launch_conflicts()
+    if conflicts["full_stack"]:
+        raise HTTPException(status_code=409, detail="Full system simulation is running. Stop it before starting RViz-only.")
+    if conflicts["hardware"] or conflicts["hardware_bootstrap"]:
+        raise HTTPException(status_code=409, detail="Hardware mode is active. Stop hardware session before starting RViz-only.")
+
     try:
         async with rviz_lock:
             before = rviz_service.status()
@@ -344,6 +435,12 @@ async def moveit_status() -> dict:
 
 @app.post("/ros/moveit/start")
 async def moveit_start(req: MoveitStartRequest) -> dict:
+    conflicts = _launch_conflicts()
+    if conflicts["full_stack"]:
+        raise HTTPException(status_code=409, detail="Full system simulation is running. Stop it before starting MoveIt-only.")
+    if conflicts["hardware"] or conflicts["hardware_bootstrap"]:
+        raise HTTPException(status_code=409, detail="Hardware mode is active. Stop hardware session before starting MoveIt-only.")
+
     try:
         async with moveit_lock:
             before = moveit_service.status()
@@ -404,6 +501,12 @@ async def gazebo_status() -> dict:
 
 @app.post("/ros/gazebo/start")
 async def gazebo_start(req: GazeboStartRequest) -> dict:
+    conflicts = _launch_conflicts()
+    if conflicts["full_stack"]:
+        raise HTTPException(status_code=409, detail="Full system simulation is running. Stop it before starting Gazebo-only.")
+    if conflicts["hardware"] or conflicts["hardware_bootstrap"]:
+        raise HTTPException(status_code=409, detail="Hardware mode is active. Stop hardware session before starting Gazebo-only.")
+
     try:
         async with gazebo_lock:
             before = gazebo_service.status()
@@ -464,13 +567,14 @@ async def full_stack_status() -> dict:
 
 @app.post("/ros/full-stack/start")
 async def full_stack_start(req: FullStackStartRequest) -> dict:
-    # Prevent conflicting launch graphs by stopping standalone sessions first.
-    async with moveit_lock:
-        moveit_service.stop()
-    async with rviz_lock:
-        rviz_service.stop()
-    async with gazebo_lock:
-        gazebo_service.stop()
+    conflicts = _launch_conflicts()
+    if conflicts["hardware"] or conflicts["hardware_bootstrap"]:
+        raise HTTPException(
+            status_code=409,
+            detail="Hardware mode is active. Stop hardware session before starting full system simulation.",
+        )
+
+    await _preempt_simulation_for("full system simulation", include_full_stack=False)
 
     try:
         async with full_stack_lock:
@@ -537,17 +641,7 @@ async def hardware_start(req: HardwareBootstrapStartRequest) -> dict:
     if hardware_bootstrap_task and not hardware_bootstrap_task.done():
         raise HTTPException(status_code=409, detail="Hardware bootstrap already in progress")
 
-    # Prevent conflicting launch graphs by stopping all standalone/simulation sessions first.
-    async with moveit_lock:
-        moveit_service.stop()
-    async with rviz_lock:
-        rviz_service.stop()
-    async with gazebo_lock:
-        gazebo_service.stop()
-    async with full_stack_lock:
-        full_stack_service.stop()
-    
-    await asyncio.sleep(1)  # Give services time to clean up
+    await _preempt_simulation_for("hardware mode", include_full_stack=True)
 
     async def _run_hardware_bootstrap() -> None:
         try:
