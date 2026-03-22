@@ -1,5 +1,5 @@
-const API_BASE = "http://127.0.0.1:8080";
-const WS_URL = "ws://127.0.0.1:8080/ws/events";
+const API_BASE = "http://127.0.0.1:8084";
+const WS_URL = "ws://127.0.0.1:8084/ws/events";
 
 const statusEl = document.getElementById("status");
 const eventsEl = document.getElementById("events");

@@ -79,6 +79,12 @@ class TrajectorySafetyCheckRequest(BaseModel):
     ref_z: float = 0.2
 
 
+class TrajectorySafetyDefaultReferenceRequest(BaseModel):
+    arm: str = Field(default="left", pattern="^(left|right)$")
+    surface: str = Field(default="XY")
+    shape: str = Field(default="circle")
+
+
 class TrajectoryGenerateRequest(BaseModel):
     config: dict = Field(default_factory=dict)
 

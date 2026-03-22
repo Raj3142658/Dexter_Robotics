@@ -18,6 +18,7 @@
         <button class="tab-btn" data-tab="gazebo">Gazebo Studio</button>
         <button class="tab-btn" data-tab="fullstack">Full System Sim</button>
         <button class="tab-btn" data-tab="hardware">Hardware Console</button>
+        <button class="tab-btn" data-tab="shape">Shape Generation</button>
       </nav>
 
       <div class="sidebar-actions">
@@ -158,6 +159,18 @@
         <pre id="hardwareSessionHint">Waiting for action.</pre>
         <pre id="hardwareSessionLog">No session logs yet.</pre>
         <pre id="hardwareStatus">Waiting for status...</pre>
+      </section>
+
+      <section class="tab-panel" id="tab-shape">
+        <h2>Shape Generation</h2>
+        <p class="hint">Workspace-driven shape generation integrated inside Control Center.</p>
+        <iframe
+          id="shapeWorkspaceFrame"
+          class="shape-frame"
+          src="shape_generation.html"
+          title="Dexter Shape Generation"
+          loading="lazy"
+        ></iframe>
       </section>
 
       <section class="status-bar">

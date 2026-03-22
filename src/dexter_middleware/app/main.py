@@ -19,7 +19,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
-from .models import CleanupRequest, EventMessage, ExecuteTrajectoryRequest, FirmwareUploadStartRequest, FullStackStartRequest, GazeboStartRequest, HardwareBootstrapStartRequest, JogJointRequest, MoveitStartRequest, RvizStartRequest, TrajectoryGenerateRequest, TrajectorySafetyCheckRequest, TrajectorySafetyLimitsRequest
+from .models import CleanupRequest, EventMessage, ExecuteTrajectoryRequest, FirmwareUploadStartRequest, FullStackStartRequest, GazeboStartRequest, HardwareBootstrapStartRequest, JogJointRequest, MoveitStartRequest, RvizStartRequest, TrajectoryGenerateRequest, TrajectorySafetyCheckRequest, TrajectorySafetyDefaultReferenceRequest, TrajectorySafetyLimitsRequest
 from .services.full_stack_service import FullStackService
 from .services.gazebo_service import GazeboService
 from .services.hardware_bootstrap_service import HardwareBootstrapService
@@ -426,6 +426,25 @@ def _validate_xy_shape_request(arm: str, shape: str, params: dict[str, float], r
             )
             break
     return violations
+
+
+def _default_safe_reference(arm: str) -> tuple[float, float, float]:
+    """Return a conservative reference point close to each arm's stable mid-workspace."""
+    zone = _arm_safety_zone(arm)
+    sx, sy, _ = [float(v) for v in zone["shoulder"]]
+    x_lo, x_hi = float(zone["x_range"][0]), float(zone["x_range"][1])
+    y_lo, y_hi = float(zone["y_range"][0]), float(zone["y_range"][1])
+    z_lo, z_hi = float(zone["z_range"][0]), float(zone["z_range"][1])
+    reach = float(zone["reach_m"])
+    ratio = float(zone.get("reach_soft_ratio", TRAJECTORY_SAFETY.get("defaults", {}).get("reach_soft_ratio", 0.95)))
+
+    inward_sign = 1.0 if sx < 0.0 else -1.0
+    target_xy = min(0.16, max(0.08, reach * ratio * 0.35))
+
+    rx = _clamp(sx + inward_sign * target_xy, x_lo, x_hi)
+    ry = _clamp(sy, y_lo, y_hi)
+    rz = _clamp(0.22, z_lo, z_hi)
+    return rx, ry, rz
 
 
 def _kill_pid_gracefully(pid: int) -> str:
@@ -941,6 +960,34 @@ async def trajectory_safety_limits(req: TrajectorySafetyLimitsRequest) -> dict:
             "z": {"min": float(zone["z_range"][0]), "max": float(zone["z_range"][1]), "step": 0.005},
         },
         "param_ranges": limits,
+        "reach_margin_m": round(available, 4),
+    }
+
+
+@app.post("/trajectory/safety/default-reference")
+async def trajectory_safety_default_reference(req: TrajectorySafetyDefaultReferenceRequest) -> dict:
+    supported_surfaces = TRAJECTORY_SAFETY.get("defaults", {}).get("supported_surfaces", ["XY"])
+    if req.surface not in supported_surfaces:
+        return {
+            "ok": False,
+            "message": f"Surface {req.surface} not supported yet. Allowed: {', '.join(supported_surfaces)}",
+            "supported_surfaces": supported_surfaces,
+        }
+
+    ref_x, ref_y, ref_z = _default_safe_reference(req.arm)
+    zone = _arm_safety_zone(req.arm)
+    sx, sy, _ = [float(v) for v in zone["shoulder"]]
+    reach = float(zone["reach_m"])
+    ratio = float(zone.get("reach_soft_ratio", TRAJECTORY_SAFETY.get("defaults", {}).get("reach_soft_ratio", 0.95)))
+    dist_xy = math.sqrt((ref_x - sx) ** 2 + (ref_y - sy) ** 2)
+    available = max(0.02, (reach * ratio) - dist_xy)
+
+    return {
+        "ok": True,
+        "arm": req.arm,
+        "surface": req.surface,
+        "reference": {"x": round(ref_x, 4), "y": round(ref_y, 4), "z": round(ref_z, 4)},
+        "param_ranges": _shape_param_limits(req.shape, available),
         "reach_margin_m": round(available, 4),
     }
 

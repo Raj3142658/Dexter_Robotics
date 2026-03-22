@@ -192,6 +192,14 @@ pre {
   padding: 16px;
 }
 
+.shape-frame {
+  width: 100%;
+  min-height: 78vh;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
 @media (max-width: 960px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -215,5 +223,9 @@ pre {
 
   .content {
     padding: 12px;
+  }
+
+  .shape-frame {
+    min-height: 72vh;
   }
 }
