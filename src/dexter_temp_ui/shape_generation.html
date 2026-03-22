@@ -1453,25 +1453,31 @@ function getServerUrl() {
 async function pingServer() {
   const url = getServerUrl();
   try {
-    const r = await fetch(`${url}/health`, { signal: AbortSignal.timeout(2000) });
+    const r = await fetch(`${url}/trajectory/backend/status`, { signal: AbortSignal.timeout(2000) });
     if (r.ok) {
-      setServerStatus(true);
+      const data = await r.json();
+      setServerStatus(Boolean(data.middleware_online), Boolean(data.bridge_online));
       return;
     }
   } catch(e) {}
-  setServerStatus(false);
+  setServerStatus(false, false);
 }
 
-function setServerStatus(online) {
-  serverOnline = online;
+function setServerStatus(middlewareOnline, bridgeOnline) {
+  serverOnline = Boolean(middlewareOnline && bridgeOnline);
   const dot  = document.getElementById('serverDot');
   const txt  = document.getElementById('serverStatus');
   const trig = document.getElementById('genTrigger');
-  if (online) {
+  if (middlewareOnline && bridgeOnline) {
     dot.style.background    = 'var(--accent-g)';
     dot.style.boxShadow     = '0 0 8px var(--accent-g)';
-    txt.textContent         = 'MIDDLEWARE: ONLINE';
+    txt.textContent         = 'PIPELINE: ONLINE';
     trig.classList.remove('server-down');
+  } else if (middlewareOnline && !bridgeOnline) {
+    dot.style.background    = '#ffcc00';
+    dot.style.boxShadow     = '0 0 8px #ffcc00';
+    txt.textContent         = 'BRIDGE: OFFLINE';
+    trig.classList.add('server-down');
   } else {
     dot.style.background    = '#ff4444';
     dot.style.boxShadow     = '0 0 8px #ff4444';
@@ -1615,7 +1621,7 @@ function termClear() {
 // ─── GENERATE ────────────────────────────────────────────────────────────────
 async function generate() {
   if (!serverOnline) {
-    termLog('[ERROR] Middleware is offline. Start dexter_middleware on :8084.', 'error');
+    termLog('[ERROR] Generation backend is offline. Ensure middleware (:8084) and trajectory bridge are both running.', 'error');
     return;
   }
 

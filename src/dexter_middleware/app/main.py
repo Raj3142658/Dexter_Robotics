@@ -151,6 +151,15 @@ def _bridge_binary_request(path: str, timeout_sec: float = 20.0) -> tuple[bytes,
         raise HTTPException(status_code=503, detail=f"Bridge unreachable at {BRIDGE_BASE_URL}: {exc.reason}") from exc
 
 
+def _bridge_is_online(timeout_sec: float = 1.5) -> bool:
+    req = urllib.request.Request(url=f"{BRIDGE_BASE_URL}/ping", method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+            return int(getattr(resp, "status", 0)) == 200
+    except Exception:
+        return False
+
+
 async def broadcast(event: EventMessage) -> None:
     if not clients:
         return
@@ -987,6 +996,18 @@ async def trajectory_generate(req: TrajectoryGenerateRequest) -> dict:
         )
 
     return _bridge_json_request("POST", "/generate", payload=config, timeout_sec=20.0)
+
+
+@app.get("/trajectory/backend/status")
+async def trajectory_backend_status() -> dict:
+    bridge_online = _bridge_is_online()
+    return {
+        "ok": True,
+        "middleware_online": True,
+        "bridge_online": bridge_online,
+        "bridge_base_url": BRIDGE_BASE_URL,
+        "message": "ready" if bridge_online else "Bridge backend is offline",
+    }
 
 
 @app.get("/trajectory/jobs/{job_id}")
