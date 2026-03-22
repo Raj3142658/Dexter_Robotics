@@ -1,0 +1,24 @@
+{
+  "defaults": {
+    "reach_soft_ratio": 0.95,
+    "supported_surfaces": [
+      "XY"
+    ]
+  },
+  "left": {
+    "shoulder": [-0.185, 0.0, 0.486],
+    "reach_m": 0.444,
+    "x_range": [-0.55, 0.15],
+    "y_range": [-0.35, 0.35],
+    "z_range": [0.10, 0.85],
+    "reach_soft_ratio": 0.95
+  },
+  "right": {
+    "shoulder": [0.185, 0.0, 0.486],
+    "reach_m": 0.444,
+    "x_range": [-0.15, 0.55],
+    "y_range": [-0.35, 0.35],
+    "z_range": [0.10, 0.85],
+    "reach_soft_ratio": 0.95
+  }
+}
