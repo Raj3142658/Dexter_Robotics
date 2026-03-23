@@ -63,6 +63,13 @@ Backend selection:
 - `DEXTER_TRAJECTORY_BACKEND_MODE=bridge`: force bridge-only generation.
 - `DEXTER_TRAJECTORY_BACKEND_MODE=native`: force middleware native generation.
 
+Native artifact contract (`backend=native`):
+
+- Download endpoint remains `GET /trajectory/download/{job_id}`.
+- Artifact format is YAML with `schema_version: dexter.trajectory.native.v1`.
+- Includes provenance fields (`backend_selected`, `source_config_sha256`, bridge status at generation time).
+- Job status payload includes `artifact_schema`, `artifact_format`, and `path_length_m`.
+
 Bridge helper scripts:
 
 ```bash

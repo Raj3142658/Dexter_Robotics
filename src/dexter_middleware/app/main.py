@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import math
 import os
@@ -87,6 +88,7 @@ NATIVE_TRAJECTORY_RUNTIME_DIR = REPO_ROOT / ".runtime" / "trajectory_native"
 NATIVE_TRAJECTORY_JOBS_DIR = NATIVE_TRAJECTORY_RUNTIME_DIR / "jobs"
 NATIVE_TRAJECTORY_INDEX_FILE = NATIVE_TRAJECTORY_RUNTIME_DIR / "jobs_index.json"
 NATIVE_JOB_PREFIX = "native_"
+NATIVE_ARTIFACT_SCHEMA_VERSION = "dexter.trajectory.native.v1"
 NATIVE_TRAJECTORY_JOBS: dict[str, dict[str, Any]] = {}
 
 NATIVE_TRAJECTORY_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
@@ -290,6 +292,19 @@ def _native_job_from_disk(job_id: str) -> dict[str, Any] | None:
     output_file = NATIVE_TRAJECTORY_JOBS_DIR / f"{job_id}.yaml"
     if not output_file.exists():
         return None
+    meta_file = NATIVE_TRAJECTORY_JOBS_DIR / f"{job_id}.meta.json"
+    if meta_file.exists():
+        try:
+            data = json.loads(meta_file.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                data.setdefault("job_id", job_id)
+                data.setdefault("output_file", str(output_file))
+                data.setdefault("status", "done")
+                data.setdefault("backend", "native")
+                data.setdefault("artifact_schema", NATIVE_ARTIFACT_SCHEMA_VERSION)
+                return data
+        except Exception:
+            pass
     return {
         "job_id": job_id,
         "status": "done",
@@ -298,6 +313,8 @@ def _native_job_from_disk(job_id: str) -> dict[str, Any] | None:
         "waypoints": None,
         "fraction": 100.0,
         "backend": "native",
+        "artifact_schema": NATIVE_ARTIFACT_SCHEMA_VERSION,
+        "artifact_format": "yaml",
         "created_at": output_file.stat().st_mtime,
     }
 
@@ -316,36 +333,201 @@ def _native_waypoint_count(config: dict[str, Any]) -> int:
     return max(4, min(5000, n))
 
 
-def _write_native_output(job_id: str, config: dict[str, Any]) -> Path:
-    output_file = NATIVE_TRAJECTORY_JOBS_DIR / f"{job_id}.yaml"
-    payload = {
-        "backend": "native",
-        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "config": config,
+def _iso_utc_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _sha256_json(value: Any) -> str:
+    raw = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _distance_3d(p0: tuple[float, float, float], p1: tuple[float, float, float]) -> float:
+    return math.sqrt((p1[0] - p0[0]) ** 2 + (p1[1] - p0[1]) ** 2 + (p1[2] - p0[2]) ** 2)
+
+
+def _shape_type_from_config(config: dict[str, Any]) -> str:
+    shape_cfg = config.get("shape") if isinstance(config.get("shape"), dict) else {}
+    return str(shape_cfg.get("type", "")).lower().strip()
+
+
+def _yaml_scalar(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        safe = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.:/")
+        if value and all(ch in safe for ch in value):
+            return value
+        return json.dumps(value)
+    return json.dumps(value)
+
+
+def _yaml_lines(value: Any, indent: int = 0) -> list[str]:
+    space = " " * indent
+    out: list[str] = []
+    if isinstance(value, dict):
+        for key, val in value.items():
+            if isinstance(val, (dict, list)):
+                out.append(f"{space}{key}:")
+                out.extend(_yaml_lines(val, indent + 2))
+            else:
+                out.append(f"{space}{key}: {_yaml_scalar(val)}")
+        if not value:
+            out.append(f"{space}{{}}")
+        return out
+
+    if isinstance(value, list):
+        if not value:
+            out.append(f"{space}[]")
+            return out
+        for item in value:
+            if isinstance(item, (dict, list)):
+                out.append(f"{space}-")
+                out.extend(_yaml_lines(item, indent + 2))
+            else:
+                out.append(f"{space}- {_yaml_scalar(item)}")
+        return out
+
+    out.append(f"{space}{_yaml_scalar(value)}")
+    return out
+
+
+def _render_yaml_document(value: dict[str, Any]) -> str:
+    body = "\n".join(_yaml_lines(value))
+    return f"---\n{body}\n"
+
+
+def _native_artifact_payload(
+    *,
+    job_id: str,
+    config: dict[str, Any],
+    arm: str,
+    surface: str,
+    params: dict[str, float],
+    ref_x: float,
+    ref_y: float,
+    ref_z: float,
+) -> tuple[dict[str, Any], list[tuple[float, float, float]]]:
+    shape = _shape_type_from_config(config)
+    waypoints = _xy_shape_waypoints(shape, params, ref_x, ref_y, ref_z)
+
+    path_length = 0.0
+    for idx in range(1, len(waypoints)):
+        path_length += _distance_3d(waypoints[idx - 1], waypoints[idx])
+
+    rounded_waypoints = [[round(x, 6), round(y, 6), round(z, 6)] for x, y, z in waypoints]
+    bounds = {
+        "x": {
+            "min": round(min(pt[0] for pt in waypoints), 6),
+            "max": round(max(pt[0] for pt in waypoints), 6),
+        },
+        "y": {
+            "min": round(min(pt[1] for pt in waypoints), 6),
+            "max": round(max(pt[1] for pt in waypoints), 6),
+        },
+        "z": {
+            "min": round(min(pt[2] for pt in waypoints), 6),
+            "max": round(max(pt[2] for pt in waypoints), 6),
+        },
     }
-    output_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    return output_file
+
+    payload = {
+        "schema_version": NATIVE_ARTIFACT_SCHEMA_VERSION,
+        "kind": "dexter_trajectory_plan",
+        "job": {
+            "id": job_id,
+            "backend": "native",
+            "created_at": _iso_utc_now(),
+        },
+        "provenance": {
+            "middleware": {
+                "service": app.title,
+                "version": app.version,
+            },
+            "backend_mode_configured": _normalize_trajectory_backend_mode(TRAJECTORY_BACKEND_MODE),
+            "backend_selected": "native",
+            "bridge_online_at_generation": _bridge_is_online(timeout_sec=0.8),
+            "bridge_base_url": BRIDGE_BASE_URL,
+            "source_config_sha256": _sha256_json(config),
+        },
+        "request": {
+            "arm": arm,
+            "surface": surface,
+            "reference_point": {
+                "x": round(ref_x, 6),
+                "y": round(ref_y, 6),
+                "z": round(ref_z, 6),
+            },
+            "shape": {
+                "type": shape,
+                **{k: float(v) for k, v in sorted(params.items())},
+            },
+            "config": config,
+        },
+        "trajectory": {
+            "waypoint_count": len(waypoints),
+            "path_length_m": round(path_length, 6),
+            "bounds": bounds,
+            "waypoints_xyz": rounded_waypoints,
+        },
+    }
+    return payload, waypoints
 
 
-def _native_generate(config: dict[str, Any]) -> dict[str, Any]:
+def _write_native_output(job_id: str, config: dict[str, Any], *, preflight: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
+    output_file = NATIVE_TRAJECTORY_JOBS_DIR / f"{job_id}.yaml"
+    payload, waypoints = _native_artifact_payload(
+        job_id=job_id,
+        config=config,
+        arm=str(preflight["arm"]),
+        surface=str(preflight["surface"]),
+        params=dict(preflight["params"]),
+        ref_x=float(preflight["ref_x"]),
+        ref_y=float(preflight["ref_y"]),
+        ref_z=float(preflight["ref_z"]),
+    )
+    output_file.write_text(_render_yaml_document(payload), encoding="utf-8")
+
+    summary = payload["trajectory"] if isinstance(payload.get("trajectory"), dict) else {}
+    return output_file, {
+        "waypoints": len(waypoints),
+        "path_length_m": float(summary.get("path_length_m", 0.0)),
+        "artifact_schema": str(payload.get("schema_version", NATIVE_ARTIFACT_SCHEMA_VERSION)),
+        "artifact_format": "yaml",
+    }
+
+
+def _native_generate(config: dict[str, Any], *, preflight: dict[str, Any]) -> dict[str, Any]:
     job_id = f"{NATIVE_JOB_PREFIX}{uuid.uuid4().hex[:12]}"
-    output_file = _write_native_output(job_id, config)
+    output_file, summary = _write_native_output(job_id, config, preflight=preflight)
     job = {
         "job_id": job_id,
         "status": "done",
         "output_file": str(output_file),
         "duration": 0.05,
-        "waypoints": _native_waypoint_count(config),
+        "waypoints": int(summary["waypoints"]),
         "fraction": 100.0,
         "backend": "native",
+        "artifact_schema": str(summary["artifact_schema"]),
+        "artifact_format": str(summary["artifact_format"]),
+        "path_length_m": float(summary["path_length_m"]),
         "created_at": time.time(),
     }
+
+    meta_file = NATIVE_TRAJECTORY_JOBS_DIR / f"{job_id}.meta.json"
+    meta_file.write_text(json.dumps(job, indent=2), encoding="utf-8")
     _register_native_job(job)
     return {
         "job_id": job_id,
         "status": "queued",
         "output_file": str(output_file),
         "backend": "native",
+        "artifact_schema": str(summary["artifact_schema"]),
+        "artifact_format": str(summary["artifact_format"]),
     }
 
 
@@ -363,14 +545,20 @@ def _native_get_job(job_id: str) -> dict[str, Any] | None:
 def _native_delete_job(job_id: str) -> dict[str, Any]:
     removed = NATIVE_TRAJECTORY_JOBS.pop(job_id, None)
     output_file = NATIVE_TRAJECTORY_JOBS_DIR / f"{job_id}.yaml"
+    meta_file = NATIVE_TRAJECTORY_JOBS_DIR / f"{job_id}.meta.json"
     file_deleted = False
+    meta_deleted = False
     if output_file.exists():
         output_file.unlink()
         file_deleted = True
+    if meta_file.exists():
+        meta_file.unlink()
+        meta_deleted = True
     _save_native_jobs_index()
     return {
         "removed_from_index": removed is not None,
         "file_deleted": file_deleted,
+        "meta_deleted": meta_deleted,
     }
 
 
@@ -1246,7 +1434,7 @@ async def trajectory_generate(req: TrajectoryGenerateRequest) -> dict:
     if not config:
         raise HTTPException(status_code=400, detail="Missing trajectory generation config")
 
-    arm, surface, _params, _rx, _ry, _rz, violations = _preflight_shape_generation_config(config)
+    arm, surface, params, ref_x, ref_y, ref_z, violations = _preflight_shape_generation_config(config)
     supported_surfaces = TRAJECTORY_SAFETY.get("defaults", {}).get("supported_surfaces", ["XY"])
     if surface not in supported_surfaces:
         raise HTTPException(
@@ -1262,7 +1450,17 @@ async def trajectory_generate(req: TrajectoryGenerateRequest) -> dict:
 
     backend = _select_generation_backend()
     if backend == "native":
-        return _native_generate(config)
+        return _native_generate(
+            config,
+            preflight={
+                "arm": arm,
+                "surface": surface,
+                "params": params,
+                "ref_x": ref_x,
+                "ref_y": ref_y,
+                "ref_z": ref_z,
+            },
+        )
 
     bridge_status = _bridge_status_payload()
     if not bridge_status["bridge_online"]:
@@ -1297,6 +1495,7 @@ async def trajectory_backend_status() -> dict:
         "can_generate": can_generate,
         "configured_backend_mode": configured_mode,
         "selected_generation_backend": selected_backend,
+        "native_artifact_schema": NATIVE_ARTIFACT_SCHEMA_VERSION,
         "native_jobs_count": len(NATIVE_TRAJECTORY_JOBS),
         "message": bridge_status["bridge_detail"],
     }

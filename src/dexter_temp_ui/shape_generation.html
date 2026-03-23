@@ -1779,6 +1779,12 @@ async function generate() {
     const job = await res.json();
     activeJobId = job.job_id;
     termLog(`[MIDDLEWARE] Job queued: ${job.job_id}`, 'bridge');
+    if (job.backend) {
+      termLog(`[MIDDLEWARE] Backend selected: ${String(job.backend).toUpperCase()}`, 'bridge');
+    }
+    if (job.artifact_schema) {
+      termLog(`[MIDDLEWARE] Artifact schema: ${job.artifact_schema}`, 'info');
+    }
     termLog(`[MIDDLEWARE] Output: ${job.output_file}`, 'bridge');
 
     // Poll status via middleware proxy until completion.
@@ -1845,9 +1851,12 @@ function onJobDone(job) {
   const dur  = job.duration  ? job.duration.toFixed(2) + 's'    : '—';
   const wpts = job.waypoints ? job.waypoints + ' pts'           : '—';
   const pct  = job.fraction  ? job.fraction.toFixed(1) + '%'    : '—';
+  const backend = job.backend ? String(job.backend).toUpperCase() : '—';
+  const schema = job.artifact_schema || '—';
 
   termLog(`[DONE] ✓ Saved: ${job.output_file}`, 'done');
   termLog(`[DONE] Duration: ${dur} | Waypoints: ${wpts} | Coverage: ${pct}`, 'done');
+  termLog(`[DONE] Backend: ${backend} | Schema: ${schema}`, 'done');
 
   // Show result bar
   const resultBar = document.getElementById('jobResult');
