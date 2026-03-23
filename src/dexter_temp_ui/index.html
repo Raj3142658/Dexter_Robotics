@@ -203,6 +203,7 @@
         <h3>Firmware Upload</h3>
         <div class="controls">
           <button id="firmwareRefreshFilesBtn" class="ghost">Refresh Files</button>
+          <button id="firmwareRefreshPortsBtn" class="ghost">Detect Serial Ports</button>
           <button id="firmwareStatusBtn" class="ghost">Upload Status</button>
           <button id="firmwareMdnsBtn" class="ghost">Auto-Detect ESP32 IP</button>
         </div>
@@ -217,7 +218,7 @@
             </select>
           </label>
           <label id="firmwareSerialPortField">Serial Port
-            <input id="firmwareSerialPort" type="text" value="/dev/ttyUSB0" placeholder="/dev/ttyUSB0">
+            <select id="firmwareSerialPortSelect"></select>
           </label>
           <label id="firmwareSerialBaudField">Serial Baud
             <input id="firmwareSerialBaud" type="number" min="9600" max="2000000" value="921600">

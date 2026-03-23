@@ -238,6 +238,53 @@ function renderFirmwareStatus(data) {
   firmwareUploadLogEl.textContent = logs.length ? logs.join("\n") : "No firmware logs yet.";
 }
 
+async function getFirmwareSerialPorts() {
+  const select = document.getElementById("firmwareSerialPortSelect");
+  if (!select) {
+    return;
+  }
+
+  const current = select.value;
+  try {
+    const res = await fetch(`${API_BASE}/firmware/serial-ports`);
+    const data = await res.json();
+    const ports = Array.isArray(data?.ports) ? data.ports : [];
+
+    select.innerHTML = "";
+    if (!ports.length) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "No serial ports detected";
+      select.appendChild(opt);
+      return;
+    }
+
+    for (const p of ports) {
+      const path = String(p?.path || "");
+      if (!path) continue;
+      const busy = Boolean(p?.busy);
+      const desc = String(p?.description || "Serial Device");
+      const label = busy ? `${path} (${desc}, busy)` : `${path} (${desc})`;
+      const opt = document.createElement("option");
+      opt.value = path;
+      opt.textContent = label;
+      select.appendChild(opt);
+    }
+
+    if (current && ports.some((p) => String(p?.path || "") === current)) {
+      select.value = current;
+    } else if (typeof data?.suggested_port === "string" && data.suggested_port) {
+      select.value = data.suggested_port;
+    }
+  } catch (err) {
+    select.innerHTML = "";
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = `Port detection failed: ${err.message}`;
+    select.appendChild(opt);
+  }
+}
+
 async function getFirmwareFiles() {
   try {
     const res = await fetch(`${API_BASE}/firmware/files`);
@@ -297,12 +344,17 @@ async function startFirmwareUpload() {
   const payload = {
     filename,
     method,
-    serial_port: document.getElementById("firmwareSerialPort")?.value || "/dev/ttyUSB0",
+    serial_port: document.getElementById("firmwareSerialPortSelect")?.value || "",
     serial_baud: Number(document.getElementById("firmwareSerialBaud")?.value || 921600),
     fqbn: document.getElementById("firmwareFqbn")?.value || "esp32:esp32:esp32",
     ota_ip: document.getElementById("firmwareOtaIp")?.value || "",
     ota_password: document.getElementById("firmwareOtaPassword")?.value || "",
   };
+
+  if (method === "serial" && !payload.serial_port.trim()) {
+    firmwareUploadStatusEl.textContent = "No serial port detected. Click Detect Serial Ports and reconnect ESP32.";
+    return;
+  }
 
   if (method === "ota" && !payload.ota_ip.trim()) {
     firmwareUploadStatusEl.textContent = "OTA method requires OTA IP/hostname.";
@@ -604,6 +656,10 @@ function wireOps() {
     await getFirmwareFiles();
   });
 
+  document.getElementById("firmwareRefreshPortsBtn")?.addEventListener("click", async () => {
+    await getFirmwareSerialPorts();
+  });
+
   document.getElementById("firmwareStatusBtn")?.addEventListener("click", async () => {
     await getFirmwareUploadStatus();
   });
@@ -659,6 +715,7 @@ async function initialize() {
     getHardwareStatus(),
     getSystemMonitorStatus(),
     getFirmwareFiles(),
+    getFirmwareSerialPorts(),
     getFirmwareUploadStatus(),
   ]);
 

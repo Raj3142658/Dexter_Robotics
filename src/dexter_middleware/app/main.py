@@ -1413,6 +1413,61 @@ def _find_espota() -> Optional[str]:
     return str(candidates[0])
 
 
+def _discover_serial_ports() -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    entries: list[dict[str, Any]] = []
+
+    # Prefer rich metadata via pyserial when available.
+    try:
+        import serial.tools.list_ports  # type: ignore
+
+        for p in serial.tools.list_ports.comports():
+            device = str(getattr(p, "device", "") or "").strip()
+            if not device or device in seen:
+                continue
+            seen.add(device)
+            pids = _list_serial_user_pids(device)
+            entries.append(
+                {
+                    "path": device,
+                    "description": str(getattr(p, "description", "") or "").strip() or "Serial Device",
+                    "hwid": str(getattr(p, "hwid", "") or "").strip(),
+                    "busy": len(pids) > 0,
+                    "busy_pids": pids,
+                }
+            )
+    except Exception:
+        pass
+
+    # Fallback paths for environments without pyserial metadata.
+    fallback_patterns = [
+        "/dev/ttyUSB*",
+        "/dev/ttyACM*",
+        "/dev/ttyAMA*",
+        "/dev/ttyTHS*",
+        "/dev/serial/by-id/*",
+    ]
+    for pattern in fallback_patterns:
+        for candidate in sorted(Path("/").glob(pattern.lstrip("/"))):
+            path = str(candidate)
+            if path in seen:
+                continue
+            seen.add(path)
+            pids = _list_serial_user_pids(path)
+            entries.append(
+                {
+                    "path": path,
+                    "description": "Serial Device",
+                    "hwid": "",
+                    "busy": len(pids) > 0,
+                    "busy_pids": pids,
+                }
+            )
+
+    entries.sort(key=lambda e: (e.get("busy", False), str(e.get("path", ""))))
+    return entries
+
+
 async def _run_firmware_upload(request: FirmwareUploadStartRequest) -> None:
     selected_path = (FIRMWARE_DIR / request.filename).resolve()
     firmware_root = FIRMWARE_DIR.resolve()
@@ -2548,6 +2603,20 @@ async def firmware_files() -> dict:
     return {
         "firmware_root": str(FIRMWARE_DIR.relative_to(REPO_ROOT)),
         "files": _firmware_files(),
+    }
+
+
+@app.get("/firmware/serial-ports")
+async def firmware_serial_ports() -> dict:
+    ports = _discover_serial_ports()
+    suggested = None
+    if ports:
+        suggested = str(ports[0].get("path") or "")
+    return {
+        "ports": ports,
+        "count": len(ports),
+        "suggested_port": suggested,
+        "auto_detected": len(ports) > 0,
     }
 
 
