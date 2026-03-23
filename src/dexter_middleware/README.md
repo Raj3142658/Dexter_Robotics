@@ -57,6 +57,12 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 - `POST /trajectory/jobs/cleanup`
 - `GET /trajectory/download/{job_id}`
 
+Backend selection:
+
+- `DEXTER_TRAJECTORY_BACKEND_MODE=auto` (default): bridge when online, native fallback when bridge is offline.
+- `DEXTER_TRAJECTORY_BACKEND_MODE=bridge`: force bridge-only generation.
+- `DEXTER_TRAJECTORY_BACKEND_MODE=native`: force middleware native generation.
+
 Bridge helper scripts:
 
 ```bash

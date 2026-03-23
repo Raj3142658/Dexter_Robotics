@@ -11,6 +11,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import uuid
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, Optional
@@ -81,6 +82,15 @@ BRIDGE_STOP_SCRIPT = Path(
 )
 BRIDGE_RECOVERY_HINT = os.getenv("DEXTER_TRAJECTORY_BRIDGE_RECOVERY_HINT", "").strip()
 bridge_control_lock = asyncio.Lock()
+TRAJECTORY_BACKEND_MODE = os.getenv("DEXTER_TRAJECTORY_BACKEND_MODE", "auto").strip().lower()
+NATIVE_TRAJECTORY_RUNTIME_DIR = REPO_ROOT / ".runtime" / "trajectory_native"
+NATIVE_TRAJECTORY_JOBS_DIR = NATIVE_TRAJECTORY_RUNTIME_DIR / "jobs"
+NATIVE_TRAJECTORY_INDEX_FILE = NATIVE_TRAJECTORY_RUNTIME_DIR / "jobs_index.json"
+NATIVE_JOB_PREFIX = "native_"
+NATIVE_TRAJECTORY_JOBS: dict[str, dict[str, Any]] = {}
+
+NATIVE_TRAJECTORY_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+NATIVE_TRAJECTORY_JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_TRAJECTORY_SAFETY: dict[str, Any] = {
     "defaults": {
@@ -241,6 +251,178 @@ def _bridge_status_payload() -> dict[str, Any]:
         "recovery_hints": hints,
         "can_generate": bridge_online,
     }
+
+
+def _normalize_trajectory_backend_mode(mode: str) -> str:
+    value = (mode or "").strip().lower()
+    if value in {"auto", "bridge", "native"}:
+        return value
+    return "auto"
+
+
+def _save_native_jobs_index() -> None:
+    payload = {
+        "saved_at": time.time(),
+        "jobs": NATIVE_TRAJECTORY_JOBS,
+    }
+    NATIVE_TRAJECTORY_INDEX_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _load_native_jobs_index() -> None:
+    if not NATIVE_TRAJECTORY_INDEX_FILE.exists():
+        return
+    try:
+        payload = json.loads(NATIVE_TRAJECTORY_INDEX_FILE.read_text(encoding="utf-8"))
+        jobs = payload.get("jobs")
+        if not isinstance(jobs, dict):
+            return
+        for job_id, job in jobs.items():
+            if not isinstance(job, dict):
+                continue
+            output_file = job.get("output_file")
+            if isinstance(output_file, str) and Path(output_file).exists():
+                NATIVE_TRAJECTORY_JOBS[str(job_id)] = job
+    except Exception:
+        pass
+
+
+def _native_job_from_disk(job_id: str) -> dict[str, Any] | None:
+    output_file = NATIVE_TRAJECTORY_JOBS_DIR / f"{job_id}.yaml"
+    if not output_file.exists():
+        return None
+    return {
+        "job_id": job_id,
+        "status": "done",
+        "output_file": str(output_file),
+        "duration": 0.05,
+        "waypoints": None,
+        "fraction": 100.0,
+        "backend": "native",
+        "created_at": output_file.stat().st_mtime,
+    }
+
+
+def _register_native_job(job: dict[str, Any]) -> None:
+    NATIVE_TRAJECTORY_JOBS[str(job["job_id"])] = job
+    _save_native_jobs_index()
+
+
+def _native_waypoint_count(config: dict[str, Any]) -> int:
+    shape = config.get("shape") if isinstance(config.get("shape"), dict) else {}
+    try:
+        n = int(shape.get("n_points", 100))
+    except Exception:
+        n = 100
+    return max(4, min(5000, n))
+
+
+def _write_native_output(job_id: str, config: dict[str, Any]) -> Path:
+    output_file = NATIVE_TRAJECTORY_JOBS_DIR / f"{job_id}.yaml"
+    payload = {
+        "backend": "native",
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "config": config,
+    }
+    output_file.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return output_file
+
+
+def _native_generate(config: dict[str, Any]) -> dict[str, Any]:
+    job_id = f"{NATIVE_JOB_PREFIX}{uuid.uuid4().hex[:12]}"
+    output_file = _write_native_output(job_id, config)
+    job = {
+        "job_id": job_id,
+        "status": "done",
+        "output_file": str(output_file),
+        "duration": 0.05,
+        "waypoints": _native_waypoint_count(config),
+        "fraction": 100.0,
+        "backend": "native",
+        "created_at": time.time(),
+    }
+    _register_native_job(job)
+    return {
+        "job_id": job_id,
+        "status": "queued",
+        "output_file": str(output_file),
+        "backend": "native",
+    }
+
+
+def _native_get_job(job_id: str) -> dict[str, Any] | None:
+    job = NATIVE_TRAJECTORY_JOBS.get(job_id)
+    if job:
+        return job
+    disk_job = _native_job_from_disk(job_id)
+    if disk_job:
+        _register_native_job(disk_job)
+        return disk_job
+    return None
+
+
+def _native_delete_job(job_id: str) -> dict[str, Any]:
+    removed = NATIVE_TRAJECTORY_JOBS.pop(job_id, None)
+    output_file = NATIVE_TRAJECTORY_JOBS_DIR / f"{job_id}.yaml"
+    file_deleted = False
+    if output_file.exists():
+        output_file.unlink()
+        file_deleted = True
+    _save_native_jobs_index()
+    return {
+        "removed_from_index": removed is not None,
+        "file_deleted": file_deleted,
+    }
+
+
+def _native_list_jobs(limit: int) -> list[dict[str, Any]]:
+    bounded = max(1, min(200, int(limit)))
+    jobs = sorted(
+        NATIVE_TRAJECTORY_JOBS.values(),
+        key=lambda j: float(j.get("created_at", 0.0)),
+        reverse=True,
+    )
+    return jobs[:bounded]
+
+
+def _native_cleanup_jobs(keep_latest: int) -> dict[str, Any]:
+    bounded = max(0, min(1000, int(keep_latest)))
+    jobs_sorted = sorted(
+        NATIVE_TRAJECTORY_JOBS.values(),
+        key=lambda j: float(j.get("created_at", 0.0)),
+        reverse=True,
+    )
+
+    removed_ids: list[str] = []
+    for job in jobs_sorted[bounded:]:
+        job_id = str(job.get("job_id", ""))
+        if not job_id:
+            continue
+        _native_delete_job(job_id)
+        removed_ids.append(job_id)
+
+    return {
+        "ok": True,
+        "kept": bounded,
+        "removed_count": len(removed_ids),
+        "removed_job_ids": removed_ids,
+        "remaining": len(NATIVE_TRAJECTORY_JOBS),
+    }
+
+
+def _select_generation_backend() -> str:
+    mode = _normalize_trajectory_backend_mode(TRAJECTORY_BACKEND_MODE)
+    if mode == "bridge":
+        return "bridge"
+    if mode == "native":
+        return "native"
+    return "bridge" if _bridge_is_online(timeout_sec=1.0) else "native"
+
+
+def _is_native_job_id(job_id: str) -> bool:
+    return job_id.startswith(NATIVE_JOB_PREFIX)
+
+
+_load_native_jobs_index()
 
 
 async def broadcast(event: EventMessage) -> None:
@@ -1078,6 +1260,10 @@ async def trajectory_generate(req: TrajectoryGenerateRequest) -> dict:
             detail=f"Safety preflight failed for {arm} arm: {violations[0]}",
         )
 
+    backend = _select_generation_backend()
+    if backend == "native":
+        return _native_generate(config)
+
     bridge_status = _bridge_status_payload()
     if not bridge_status["bridge_online"]:
         hints = bridge_status.get("recovery_hints", [])
@@ -1087,12 +1273,17 @@ async def trajectory_generate(req: TrajectoryGenerateRequest) -> dict:
             detail=f"{bridge_status['bridge_detail']}.{hint_msg}",
         )
 
-    return _bridge_json_request("POST", "/generate", payload=config, timeout_sec=20.0)
+    bridge_resp = _bridge_json_request("POST", "/generate", payload=config, timeout_sec=20.0)
+    bridge_resp.setdefault("backend", "bridge")
+    return bridge_resp
 
 
 @app.get("/trajectory/backend/status")
 async def trajectory_backend_status() -> dict:
     bridge_status = _bridge_status_payload()
+    selected_backend = _select_generation_backend()
+    configured_mode = _normalize_trajectory_backend_mode(TRAJECTORY_BACKEND_MODE)
+    can_generate = bool(bridge_status["bridge_online"]) if selected_backend == "bridge" else True
     return {
         "ok": True,
         "middleware_online": True,
@@ -1103,7 +1294,10 @@ async def trajectory_backend_status() -> dict:
         "bridge_stop_script": bridge_status["bridge_stop_script"],
         "bridge_stop_script_exists": bool(bridge_status["bridge_stop_script_exists"]),
         "recovery_hints": bridge_status["recovery_hints"],
-        "can_generate": bool(bridge_status["can_generate"]),
+        "can_generate": can_generate,
+        "configured_backend_mode": configured_mode,
+        "selected_generation_backend": selected_backend,
+        "native_jobs_count": len(NATIVE_TRAJECTORY_JOBS),
         "message": bridge_status["bridge_detail"],
     }
 
@@ -1111,7 +1305,37 @@ async def trajectory_backend_status() -> dict:
 @app.get("/trajectory/jobs")
 async def trajectory_jobs_list(limit: int = 20) -> dict:
     bounded = max(1, min(200, int(limit)))
-    return _bridge_json_request("GET", f"/jobs?limit={bounded}", timeout_sec=10.0)
+    native_jobs = _native_list_jobs(bounded)
+    bridge_jobs: list[dict[str, Any]] = []
+    bridge_error: str | None = None
+
+    if _bridge_is_online(timeout_sec=1.0):
+        try:
+            bridge_data = _bridge_json_request("GET", f"/jobs?limit={bounded}", timeout_sec=10.0)
+            raw_jobs = bridge_data.get("jobs") if isinstance(bridge_data, dict) else []
+            if isinstance(raw_jobs, list):
+                for job in raw_jobs:
+                    if isinstance(job, dict):
+                        j = dict(job)
+                        j.setdefault("backend", "bridge")
+                        bridge_jobs.append(j)
+        except HTTPException as exc:
+            bridge_error = str(exc.detail)
+
+    merged = native_jobs + bridge_jobs
+    merged.sort(key=lambda j: float(j.get("created_at", 0.0)), reverse=True)
+    merged = merged[:bounded]
+
+    return {
+        "ok": True,
+        "count": len(merged),
+        "jobs": merged,
+        "sources": {
+            "native": len(native_jobs),
+            "bridge": len(bridge_jobs),
+        },
+        "bridge_error": bridge_error,
+    }
 
 
 @app.delete("/trajectory/jobs/{job_id}")
@@ -1119,13 +1343,46 @@ async def trajectory_job_delete(job_id: str) -> dict:
     job = job_id.strip()
     if not job:
         raise HTTPException(status_code=400, detail="job_id is required")
-    return _bridge_json_request("DELETE", f"/jobs/{job}", timeout_sec=10.0)
+
+    if _is_native_job_id(job):
+        deleted = _native_delete_job(job)
+        if not deleted["removed_from_index"] and not deleted["file_deleted"]:
+            raise HTTPException(status_code=404, detail=f"Unknown job_id: {job}")
+        return {
+            "ok": True,
+            "job_id": job,
+            "backend": "native",
+            **deleted,
+        }
+
+    bridge_resp = _bridge_json_request("DELETE", f"/jobs/{job}", timeout_sec=10.0)
+    if isinstance(bridge_resp, dict):
+        bridge_resp.setdefault("backend", "bridge")
+    return bridge_resp
 
 
 @app.post("/trajectory/jobs/cleanup")
 async def trajectory_jobs_cleanup(keep_latest: int = 20) -> dict:
     bounded = max(0, min(1000, int(keep_latest)))
-    return _bridge_json_request("POST", "/jobs/cleanup", payload={"keep_latest": bounded}, timeout_sec=12.0)
+    native_result = _native_cleanup_jobs(bounded)
+    bridge_result: dict[str, Any] = {"ok": False, "message": "bridge offline"}
+    if _bridge_is_online(timeout_sec=1.0):
+        try:
+            bridge_result = _bridge_json_request(
+                "POST",
+                "/jobs/cleanup",
+                payload={"keep_latest": bounded},
+                timeout_sec=12.0,
+            )
+        except HTTPException as exc:
+            bridge_result = {"ok": False, "message": str(exc.detail)}
+
+    return {
+        "ok": True,
+        "keep_latest": bounded,
+        "native": native_result,
+        "bridge": bridge_result,
+    }
 
 
 @app.post("/trajectory/backend/start")
@@ -1243,7 +1500,13 @@ async def trajectory_job_status(job_id: str) -> dict:
     job = job_id.strip()
     if not job:
         raise HTTPException(status_code=400, detail="job_id is required")
-    return _bridge_json_request("GET", f"/jobs/{job}", timeout_sec=10.0)
+    native_job = _native_get_job(job)
+    if native_job is not None:
+        return native_job
+    bridge_resp = _bridge_json_request("GET", f"/jobs/{job}", timeout_sec=10.0)
+    if isinstance(bridge_resp, dict):
+        bridge_resp.setdefault("backend", "bridge")
+    return bridge_resp
 
 
 @app.get("/trajectory/download/{job_id}")
@@ -1251,6 +1514,15 @@ async def trajectory_download(job_id: str) -> Response:
     job = job_id.strip()
     if not job:
         raise HTTPException(status_code=400, detail="job_id is required")
+
+    if _is_native_job_id(job):
+        native_job = _native_get_job(job)
+        output_path = Path(native_job["output_file"]) if native_job else (NATIVE_TRAJECTORY_JOBS_DIR / f"{job}.yaml")
+        if not output_path.exists():
+            raise HTTPException(status_code=404, detail=f"Output not found for job_id: {job}")
+        body = output_path.read_bytes()
+        headers = {"Content-Disposition": f"attachment; filename={output_path.name}"}
+        return Response(content=body, media_type="application/x-yaml", headers=headers)
 
     body, content_type, disposition = _bridge_binary_request(f"/download/{job}", timeout_sec=30.0)
     headers = {}

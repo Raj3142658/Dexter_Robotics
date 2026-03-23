@@ -1300,6 +1300,7 @@ let lastBackendDiag = '';
 let lastBackendHintSig = '';
 let lastRecoveryHints = [];
 let bridgeStartInFlight = false;
+let selectedGenerationBackend = 'bridge';
 const SAFETY_API_BASE = 'http://127.0.0.1:8084';
 const TRAJECTORY_API_BASE = 'http://127.0.0.1:8084';
 
@@ -1508,24 +1509,32 @@ async function pingServer() {
         Boolean(data.middleware_online),
         Boolean(data.bridge_online),
         data.message || '',
-        Array.isArray(data.recovery_hints) ? data.recovery_hints : []
+        Array.isArray(data.recovery_hints) ? data.recovery_hints : [],
+        Boolean(data.can_generate),
+        String(data.selected_generation_backend || 'bridge')
       );
       return;
     }
   } catch(e) {}
-  setServerStatus(false, false, 'Middleware unreachable', []);
+  setServerStatus(false, false, 'Middleware unreachable', [], false, 'bridge');
 }
 
-function setServerStatus(middlewareOnline, bridgeOnline, diagMessage = '', recoveryHints = []) {
-  serverOnline = Boolean(middlewareOnline && bridgeOnline);
+function setServerStatus(middlewareOnline, bridgeOnline, diagMessage = '', recoveryHints = [], canGenerate = false, selectedBackend = 'bridge') {
+  selectedGenerationBackend = selectedBackend;
+  serverOnline = Boolean(middlewareOnline && canGenerate);
   lastRecoveryHints = recoveryHints;
   const dot  = document.getElementById('serverDot');
   const txt  = document.getElementById('serverStatus');
   const trig = document.getElementById('genTrigger');
-  if (middlewareOnline && bridgeOnline) {
+  if (middlewareOnline && canGenerate && selectedBackend === 'bridge') {
     dot.style.background    = 'var(--accent-g)';
     dot.style.boxShadow     = '0 0 8px var(--accent-g)';
-    txt.textContent         = 'PIPELINE: ONLINE';
+    txt.textContent         = 'PIPELINE: ONLINE (BRIDGE)';
+    trig.classList.remove('server-down');
+  } else if (middlewareOnline && canGenerate && selectedBackend === 'native') {
+    dot.style.background    = '#00e5ff';
+    dot.style.boxShadow     = '0 0 8px #00e5ff';
+    txt.textContent         = 'PIPELINE: ONLINE (NATIVE)';
     trig.classList.remove('server-down');
   } else if (middlewareOnline && !bridgeOnline) {
     dot.style.background    = '#ffcc00';
@@ -1716,7 +1725,7 @@ function termClear() {
 // ─── GENERATE ────────────────────────────────────────────────────────────────
 async function generate() {
   if (!serverOnline) {
-    termLog('[ERROR] Generation backend is offline. Ensure middleware (:8084) and trajectory bridge are both running.', 'error');
+    termLog(`[ERROR] Generation backend is offline. Selected backend: ${selectedGenerationBackend}.`, 'error');
     if (lastRecoveryHints.length) {
       for (const hint of lastRecoveryHints) termLog(`[HINT] ${hint}`, 'warn');
     }
