@@ -356,6 +356,42 @@ def _validate_artifact_text(text: str, expected_backend: str) -> dict[str, Any]:
     }
 
 
+def _job_metadata_for_validation(job_id: str) -> dict[str, Any]:
+    if _is_native_job_id(job_id):
+        native_job = _native_get_job(job_id)
+        if native_job is None:
+            raise HTTPException(status_code=404, detail=f"Unknown job_id: {job_id}")
+        return _normalize_job_contract(native_job, backend_hint="native")
+
+    bridge_resp = _bridge_json_request("GET", f"/jobs/{job_id}", timeout_sec=10.0)
+    return _normalize_job_contract(bridge_resp, backend_hint="bridge")
+
+
+def _artifact_validation_payload(job_id: str, strict: bool = True) -> dict[str, Any]:
+    meta = _job_metadata_for_validation(job_id)
+    backend = str(meta.get("backend", "bridge"))
+    if backend not in {"bridge", "native"}:
+        backend = "bridge"
+
+    text, source = _load_artifact_text(job_id, backend)
+    validation = _validate_artifact_text(text, expected_backend=backend)
+    payload = {
+        "ok": validation["ok"],
+        "job_id": job_id,
+        "backend": backend,
+        "strict": strict,
+        "contract_version": TRAJECTORY_JOB_CONTRACT_VERSION,
+        "artifact_schema_expected": NATIVE_ARTIFACT_SCHEMA_VERSION,
+        "artifact_schema_reported": meta.get("artifact_schema"),
+        "artifact_format_reported": meta.get("artifact_format"),
+        "artifact_source": source,
+        "validation": validation,
+    }
+    if strict and not validation["ok"]:
+        raise HTTPException(status_code=422, detail=payload)
+    return payload
+
+
 def _save_native_jobs_index() -> None:
     payload = {
         "saved_at": time.time(),
@@ -1467,15 +1503,23 @@ async def jog_joint(req: JogJointRequest) -> dict:
 
 
 @app.post("/trajectory/execute")
-async def execute_trajectory(req: ExecuteTrajectoryRequest) -> dict:
+async def execute_trajectory(
+    req: ExecuteTrajectoryRequest,
+    artifact_job_id: str | None = None,
+    artifact_strict: bool = True,
+) -> dict:
     if not state.connected or not state.enabled:
         raise HTTPException(status_code=400, detail="Robot must be connected and enabled")
     if state.trajectory_running:
         raise HTTPException(status_code=409, detail="Another trajectory is already running")
 
+    artifact_validation = None
+    if artifact_job_id is not None and artifact_job_id.strip():
+        artifact_validation = _artifact_validation_payload(artifact_job_id.strip(), strict=artifact_strict)
+
     state.trajectory_running = True
     state.trajectory_paused = False
-    state.trajectory_name = req.name
+    state.trajectory_name = req.name if artifact_validation is None else f"{req.name} ({artifact_job_id.strip()})"
     state.trajectory_progress = 0.0
     state.worker_task = asyncio.create_task(_run_trajectory(req.name, req.duration_sec))
 
@@ -1486,7 +1530,17 @@ async def execute_trajectory(req: ExecuteTrajectoryRequest) -> dict:
             payload=snapshot(),
         )
     )
-    return snapshot()
+
+    payload = snapshot()
+    if artifact_validation is not None:
+        payload["execution_guard"] = {
+            "artifact_job_id": artifact_validation["job_id"],
+            "strict": artifact_validation["strict"],
+            "ok": artifact_validation["ok"],
+            "backend": artifact_validation["backend"],
+            "artifact_schema_reported": artifact_validation["artifact_schema_reported"],
+        }
+    return payload
 
 
 @app.post("/trajectory/pause")
@@ -1791,11 +1845,7 @@ async def trajectory_job_status(job_id: str) -> dict:
     job = job_id.strip()
     if not job:
         raise HTTPException(status_code=400, detail="job_id is required")
-    native_job = _native_get_job(job)
-    if native_job is not None:
-        return _normalize_job_contract(native_job, backend_hint="native")
-    bridge_resp = _bridge_json_request("GET", f"/jobs/{job}", timeout_sec=10.0)
-    return _normalize_job_contract(bridge_resp, backend_hint="bridge")
+    return _job_metadata_for_validation(job)
 
 
 @app.get("/trajectory/download/{job_id}")
@@ -1825,30 +1875,7 @@ async def trajectory_artifact_validate(job_id: str, strict: bool = True) -> dict
     job = job_id.strip()
     if not job:
         raise HTTPException(status_code=400, detail="job_id is required")
-
-    # Reuse normalized job metadata so validation is consistent with middleware-facing contract.
-    meta = await trajectory_job_status(job)
-    backend = str(meta.get("backend", "bridge"))
-    if backend not in {"bridge", "native"}:
-        backend = "bridge"
-
-    text, source = _load_artifact_text(job, backend)
-    validation = _validate_artifact_text(text, expected_backend=backend)
-    payload = {
-        "ok": validation["ok"],
-        "job_id": job,
-        "backend": backend,
-        "strict": strict,
-        "contract_version": TRAJECTORY_JOB_CONTRACT_VERSION,
-        "artifact_schema_expected": NATIVE_ARTIFACT_SCHEMA_VERSION,
-        "artifact_schema_reported": meta.get("artifact_schema"),
-        "artifact_format_reported": meta.get("artifact_format"),
-        "artifact_source": source,
-        "validation": validation,
-    }
-    if strict and not validation["ok"]:
-        raise HTTPException(status_code=422, detail=payload)
-    return payload
+    return _artifact_validation_payload(job, strict=strict)
 
 
 @app.post("/trajectory/safety/limits")

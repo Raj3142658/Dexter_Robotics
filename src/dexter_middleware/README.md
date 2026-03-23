@@ -86,6 +86,12 @@ Strict artifact validation:
 - `GET /trajectory/artifacts/validate/{job_id}` validates required schema/provenance/trajectory keys.
 - Default `strict=true` returns HTTP 422 when required keys are missing.
 
+Execution artifact gate:
+
+- `POST /trajectory/execute` now supports optional query params:
+- `artifact_job_id=<job_id>`: require artifact validation for this job before execution starts.
+- `artifact_strict=true|false` (default `true`): strict mode enforces validation failure as HTTP error.
+
 Bridge helper scripts:
 
 ```bash
