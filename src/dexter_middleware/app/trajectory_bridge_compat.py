@@ -1,5 +1,6 @@
 import json
 import os
+import hashlib
 import time
 import uuid
 from pathlib import Path
@@ -14,6 +15,8 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 RUNTIME_DIR = REPO_ROOT / ".runtime" / "trajectory_bridge"
 JOBS_DIR = RUNTIME_DIR / "jobs"
 JOB_INDEX_FILE = RUNTIME_DIR / "jobs_index.json"
+ARTIFACT_SCHEMA_VERSION = "dexter.trajectory.native.v1"
+JOB_CONTRACT_VERSION = "dexter.trajectory.job.v1"
 
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -55,14 +58,20 @@ def _register_job(job: dict[str, Any]) -> None:
 def _delete_job(job_id: str) -> dict[str, Any]:
     removed = JOBS.pop(job_id, None)
     output_file = JOBS_DIR / f"{job_id}.yaml"
+    meta_file = JOBS_DIR / f"{job_id}.meta.json"
     file_deleted = False
+    meta_deleted = False
     if output_file.exists():
         output_file.unlink()
         file_deleted = True
+    if meta_file.exists():
+        meta_file.unlink()
+        meta_deleted = True
     _save_jobs_index()
     return {
         "removed_from_index": removed is not None,
         "file_deleted": file_deleted,
+        "meta_deleted": meta_deleted,
     }
 
 
@@ -80,16 +89,99 @@ def _shape_summary(shape: dict[str, Any]) -> str:
     return f"type={shape_type}; params={','.join(keys)}"
 
 
-def _write_job_output(job_id: str, config: dict[str, Any]) -> Path:
-    output_path = JOBS_DIR / f"{job_id}.yaml"
+def _iso_utc_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-    # Keep output human-readable and deterministic without introducing PyYAML dependency.
-    body = {
-        "bridge": "trajectory_bridge_compat",
-        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "config": config,
+
+def _sha256_json(value: Any) -> str:
+    raw = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _yaml_scalar(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        safe = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.:/")
+        if value and all(ch in safe for ch in value):
+            return value
+        return json.dumps(value)
+    return json.dumps(value)
+
+
+def _yaml_lines(value: Any, indent: int = 0) -> list[str]:
+    space = " " * indent
+    out: list[str] = []
+    if isinstance(value, dict):
+        for key, val in value.items():
+            if isinstance(val, (dict, list)):
+                out.append(f"{space}{key}:")
+                out.extend(_yaml_lines(val, indent + 2))
+            else:
+                out.append(f"{space}{key}: {_yaml_scalar(val)}")
+        if not value:
+            out.append(f"{space}{{}}")
+        return out
+
+    if isinstance(value, list):
+        if not value:
+            out.append(f"{space}[]")
+            return out
+        for item in value:
+            if isinstance(item, (dict, list)):
+                out.append(f"{space}-")
+                out.extend(_yaml_lines(item, indent + 2))
+            else:
+                out.append(f"{space}- {_yaml_scalar(item)}")
+        return out
+
+    out.append(f"{space}{_yaml_scalar(value)}")
+    return out
+
+
+def _render_yaml_document(value: dict[str, Any]) -> str:
+    body = "\n".join(_yaml_lines(value))
+    return f"---\n{body}\n"
+
+
+def _artifact_payload(job_id: str, config: dict[str, Any], shape: dict[str, Any], waypoints: int) -> dict[str, Any]:
+    return {
+        "schema_version": ARTIFACT_SCHEMA_VERSION,
+        "kind": "dexter_trajectory_plan",
+        "job": {
+            "id": job_id,
+            "backend": "bridge",
+            "created_at": _iso_utc_now(),
+        },
+        "provenance": {
+            "bridge": {
+                "service": app.title,
+                "version": app.version,
+            },
+            "backend_selected": "bridge",
+            "source_config_sha256": _sha256_json(config),
+        },
+        "request": {
+            "shape": {
+                "type": str(shape.get("type", "unknown")),
+            },
+            "config": config,
+        },
+        "trajectory": {
+            "waypoint_count": waypoints,
+            "shape_summary": _shape_summary(shape),
+        },
     }
-    output_path.write_text(json.dumps(body, indent=2), encoding="utf-8")
+
+
+def _write_job_output(job_id: str, config: dict[str, Any], shape: dict[str, Any], waypoints: int) -> Path:
+    output_path = JOBS_DIR / f"{job_id}.yaml"
+    body = _artifact_payload(job_id, config, shape, waypoints)
+    output_path.write_text(_render_yaml_document(body), encoding="utf-8")
     return output_path
 
 
@@ -97,6 +189,22 @@ def _job_from_disk(job_id: str) -> dict[str, Any] | None:
     output_file = JOBS_DIR / f"{job_id}.yaml"
     if not output_file.exists():
         return None
+
+    meta_file = JOBS_DIR / f"{job_id}.meta.json"
+    if meta_file.exists():
+        try:
+            payload = json.loads(meta_file.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                payload.setdefault("job_id", job_id)
+                payload.setdefault("output_file", str(output_file))
+                payload.setdefault("status", "done")
+                payload.setdefault("backend", "bridge")
+                payload.setdefault("artifact_schema", ARTIFACT_SCHEMA_VERSION)
+                payload.setdefault("artifact_format", "yaml")
+                payload.setdefault("contract_version", JOB_CONTRACT_VERSION)
+                return payload
+        except Exception:
+            pass
 
     return {
         "job_id": job_id,
@@ -106,6 +214,10 @@ def _job_from_disk(job_id: str) -> dict[str, Any] | None:
         "waypoints": None,
         "fraction": 100.0,
         "shape_summary": "unknown",
+        "backend": "bridge",
+        "artifact_schema": ARTIFACT_SCHEMA_VERSION,
+        "artifact_format": "yaml",
+        "contract_version": JOB_CONTRACT_VERSION,
         "created_at": output_file.stat().st_mtime,
     }
 
@@ -127,7 +239,7 @@ async def generate(config: dict[str, Any]) -> dict[str, Any]:
     waypoints = _safe_waypoint_count(shape)
 
     job_id = uuid.uuid4().hex[:12]
-    output_file = _write_job_output(job_id, config)
+    output_file = _write_job_output(job_id, config, shape, waypoints)
 
     job = {
         "job_id": job_id,
@@ -137,14 +249,23 @@ async def generate(config: dict[str, Any]) -> dict[str, Any]:
         "waypoints": waypoints,
         "fraction": 100.0,
         "shape_summary": _shape_summary(shape),
+        "backend": "bridge",
+        "artifact_schema": ARTIFACT_SCHEMA_VERSION,
+        "artifact_format": "yaml",
+        "contract_version": JOB_CONTRACT_VERSION,
         "created_at": time.time(),
     }
+    (JOBS_DIR / f"{job_id}.meta.json").write_text(json.dumps(job, indent=2), encoding="utf-8")
     _register_job(job)
 
     return {
         "job_id": job_id,
         "status": "queued",
         "output_file": str(output_file),
+        "backend": "bridge",
+        "artifact_schema": ARTIFACT_SCHEMA_VERSION,
+        "artifact_format": "yaml",
+        "contract_version": JOB_CONTRACT_VERSION,
     }
 
 

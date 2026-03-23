@@ -75,6 +75,11 @@ Middleware job payload contract normalization:
 - `POST /trajectory/generate`, `GET /trajectory/jobs`, and `GET /trajectory/jobs/{job_id}` return `contract_version: dexter.trajectory.job.v1`.
 - Middleware always returns `backend` and artifact metadata keys, including bridge compatibility defaults.
 
+Bridge artifact parity:
+
+- The local compatibility bridge now emits schema-tagged YAML artifacts using `schema_version: dexter.trajectory.native.v1` with bridge provenance.
+- This keeps downloaded artifact structure aligned between bridge and native generation paths.
+
 Bridge helper scripts:
 
 ```bash
