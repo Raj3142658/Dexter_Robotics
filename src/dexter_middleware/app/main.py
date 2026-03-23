@@ -14,6 +14,7 @@ import urllib.request
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -75,7 +76,11 @@ BRIDGE_BASE_URL = os.getenv("DEXTER_TRAJECTORY_BRIDGE_URL", "http://127.0.0.1:87
 BRIDGE_START_SCRIPT = Path(
     os.getenv("DEXTER_TRAJECTORY_BRIDGE_START_SCRIPT", str(REPO_ROOT / "scripts" / "start_trajectory_bridge.sh"))
 )
+BRIDGE_STOP_SCRIPT = Path(
+    os.getenv("DEXTER_TRAJECTORY_BRIDGE_STOP_SCRIPT", str(REPO_ROOT / "scripts" / "stop_trajectory_bridge.sh"))
+)
 BRIDGE_RECOVERY_HINT = os.getenv("DEXTER_TRAJECTORY_BRIDGE_RECOVERY_HINT", "").strip()
+bridge_control_lock = asyncio.Lock()
 
 DEFAULT_TRAJECTORY_SAFETY: dict[str, Any] = {
     "defaults": {
@@ -198,6 +203,30 @@ def _bridge_recovery_hints(bridge_online: bool) -> list[str]:
     return hints
 
 
+def _bridge_port_from_base_url(default_port: int = 8765) -> int:
+    try:
+        parsed = urlparse(BRIDGE_BASE_URL)
+        if parsed.port:
+            return int(parsed.port)
+        if parsed.scheme == "https":
+            return 443
+        if parsed.scheme == "http":
+            return 80
+    except Exception:
+        pass
+    return default_port
+
+
+def _wait_for_bridge(expected_online: bool, timeout_sec: float = 6.0, interval_sec: float = 0.25) -> bool:
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        online = _bridge_is_online(timeout_sec=1.0)
+        if online == expected_online:
+            return True
+        time.sleep(interval_sec)
+    return _bridge_is_online(timeout_sec=1.0) == expected_online
+
+
 def _bridge_status_payload() -> dict[str, Any]:
     bridge_online, bridge_detail = _bridge_probe()
     hints = _bridge_recovery_hints(bridge_online)
@@ -207,6 +236,8 @@ def _bridge_status_payload() -> dict[str, Any]:
         "bridge_base_url": BRIDGE_BASE_URL,
         "bridge_start_script": str(BRIDGE_START_SCRIPT),
         "bridge_start_script_exists": BRIDGE_START_SCRIPT.exists(),
+        "bridge_stop_script": str(BRIDGE_STOP_SCRIPT),
+        "bridge_stop_script_exists": BRIDGE_STOP_SCRIPT.exists(),
         "recovery_hints": hints,
         "can_generate": bridge_online,
     }
@@ -1069,10 +1100,122 @@ async def trajectory_backend_status() -> dict:
         "bridge_base_url": bridge_status["bridge_base_url"],
         "bridge_start_script": bridge_status["bridge_start_script"],
         "bridge_start_script_exists": bool(bridge_status["bridge_start_script_exists"]),
+        "bridge_stop_script": bridge_status["bridge_stop_script"],
+        "bridge_stop_script_exists": bool(bridge_status["bridge_stop_script_exists"]),
         "recovery_hints": bridge_status["recovery_hints"],
         "can_generate": bool(bridge_status["can_generate"]),
         "message": bridge_status["bridge_detail"],
     }
+
+
+@app.post("/trajectory/backend/start")
+async def trajectory_backend_start() -> dict:
+    async with bridge_control_lock:
+        if _bridge_is_online(timeout_sec=1.0):
+            return {
+                "ok": True,
+                "started": False,
+                "message": "Bridge already online",
+                "status": _bridge_status_payload(),
+            }
+
+        if not BRIDGE_START_SCRIPT.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Bridge start script not found: {BRIDGE_START_SCRIPT}. "
+                    "Set DEXTER_TRAJECTORY_BRIDGE_START_SCRIPT or create the script."
+                ),
+            )
+
+        try:
+            proc = subprocess.Popen(
+                ["/bin/bash", str(BRIDGE_START_SCRIPT)],
+                cwd=str(REPO_ROOT),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to launch bridge start script: {exc}") from exc
+
+        # If the script exits immediately with failure, surface it as actionable error.
+        time.sleep(0.2)
+        exit_code = proc.poll()
+        if exit_code not in (None, 0):
+            raise HTTPException(
+                status_code=500,
+                detail=f"Bridge start script exited early with code {exit_code}: {BRIDGE_START_SCRIPT}",
+            )
+
+        online = _wait_for_bridge(expected_online=True, timeout_sec=6.0)
+        status = _bridge_status_payload()
+        if not online:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Bridge start requested but still offline: {status['bridge_detail']}",
+            )
+
+        return {
+            "ok": True,
+            "started": True,
+            "message": "Bridge started",
+            "status": status,
+        }
+
+
+@app.post("/trajectory/backend/stop")
+async def trajectory_backend_stop() -> dict:
+    async with bridge_control_lock:
+        if BRIDGE_STOP_SCRIPT.exists():
+            try:
+                completed = subprocess.run(
+                    ["/bin/bash", str(BRIDGE_STOP_SCRIPT)],
+                    cwd=str(REPO_ROOT),
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=12,
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=f"Failed to run bridge stop script: {exc}") from exc
+
+            offline = _wait_for_bridge(expected_online=False, timeout_sec=4.0)
+            status = _bridge_status_payload()
+            if not offline and completed.returncode == 0:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Bridge stop script ran but bridge is still online: {status['bridge_detail']}",
+                )
+            if completed.returncode != 0:
+                err = (completed.stderr or completed.stdout or "").strip()
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Bridge stop script failed with code {completed.returncode}: {err}",
+                )
+
+            return {
+                "ok": True,
+                "stopped": offline,
+                "message": "Bridge stop script executed",
+                "status": status,
+            }
+
+        # Fallback: terminate the process listening on bridge port.
+        bridge_port = _bridge_port_from_base_url(default_port=8765)
+        pids = [pid for pid in _list_port_user_pids(bridge_port) if pid != os.getpid()]
+        actions = []
+        for pid in pids:
+            actions.append(_kill_pid_gracefully(pid))
+
+        offline = _wait_for_bridge(expected_online=False, timeout_sec=4.0)
+        status = _bridge_status_payload()
+        return {
+            "ok": True,
+            "stopped": offline,
+            "message": "Bridge stop attempted via port fallback",
+            "actions": actions,
+            "status": status,
+        }
 
 
 @app.get("/trajectory/jobs/{job_id}")

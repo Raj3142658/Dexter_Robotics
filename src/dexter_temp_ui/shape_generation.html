@@ -460,6 +460,26 @@
   .btn-generate.done    { border-color: var(--accent-g); color: var(--accent-g); }
   .btn-generate.error   { border-color: #ff4444; color: #ff4444; }
 
+  .btn-bridge {
+    width: 100%;
+    padding: 10px;
+    background: transparent;
+    border: 1px solid var(--warn);
+    color: var(--warn);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.2s;
+  }
+  .btn-bridge:hover { background: rgba(255,204,0,0.08); }
+  .btn-bridge:disabled {
+    border-color: var(--text-dim);
+    color: var(--text-dim);
+    cursor: not-allowed;
+  }
+
   /* Terminal log */
   .terminal {
     background: #020508;
@@ -793,6 +813,10 @@
 
     <button class="btn-generate" id="btnGenerate" onclick="generate()">
       ⚡ GENERATE TRAJECTORY
+    </button>
+
+    <button class="btn-bridge" id="btnBridgeStart" onclick="startBridge()">
+      START BRIDGE
     </button>
 
   </div>
@@ -1275,8 +1299,29 @@ let safetyApplying = false;
 let lastBackendDiag = '';
 let lastBackendHintSig = '';
 let lastRecoveryHints = [];
+let bridgeStartInFlight = false;
 const SAFETY_API_BASE = 'http://127.0.0.1:8084';
 const TRAJECTORY_API_BASE = 'http://127.0.0.1:8084';
+
+function updateBridgeButtonState(middlewareOnline, bridgeOnline) {
+  const btn = document.getElementById('btnBridgeStart');
+  if (!btn) return;
+
+  if (bridgeStartInFlight) {
+    btn.disabled = true;
+    btn.textContent = 'STARTING BRIDGE...';
+    return;
+  }
+
+  if (middlewareOnline && !bridgeOnline) {
+    btn.disabled = false;
+    btn.textContent = 'START BRIDGE';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = bridgeOnline ? 'BRIDGE ONLINE' : 'BRIDGE UNAVAILABLE';
+}
 
 function clamp(value, minVal, maxVal) {
   return Math.min(maxVal, Math.max(minVal, value));
@@ -1505,6 +1550,34 @@ function setServerStatus(middlewareOnline, bridgeOnline, diagMessage = '', recov
       for (const hint of recoveryHints) termLog(`[RECOVERY] ${hint}`, 'warn');
       lastBackendHintSig = sig;
     }
+  }
+
+  updateBridgeButtonState(middlewareOnline, bridgeOnline);
+}
+
+async function startBridge() {
+  if (bridgeStartInFlight) return;
+  bridgeStartInFlight = true;
+  updateBridgeButtonState(true, false);
+
+  try {
+    termLog('[ACTION] Requesting bridge start...', 'bridge');
+    const res = await fetch(`${TRAJECTORY_API_BASE}/trajectory/backend/start`, { method: 'POST' });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      termLog(`[ERROR] Bridge start failed (${res.status}): ${txt}`, 'error');
+      return;
+    }
+
+    const data = await res.json();
+    termLog(`[ACTION] ${data.message || 'Bridge start requested'}`, 'done');
+    await pingServer();
+  } catch (e) {
+    termLog(`[ERROR] Bridge start request failed: ${e.message}`, 'error');
+  } finally {
+    bridgeStartInFlight = false;
+    await pingServer();
   }
 }
 
