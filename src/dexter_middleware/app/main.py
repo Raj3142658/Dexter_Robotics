@@ -3,6 +3,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shlex
 import shutil
 import signal
@@ -68,6 +69,12 @@ firmware_upload_state: dict = {
     "finished_at": None,
     "command": None,
     "filename": None,
+}
+
+ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+ARDUINO_HEADER_LIBRARY_MAP: dict[str, str] = {
+    "micro_ros_arduino.h": "micro_ros_arduino",
+    "Adafruit_PWMServoDriver.h": "Adafruit PWM Servo Driver Library",
 }
 
 LAUNCH_TRANSITION_TIMEOUT_SEC = 10.0
@@ -932,8 +939,99 @@ async def _preempt_simulation_for(target_name: str, include_full_stack: bool) ->
 
 def _append_firmware_log(line: str) -> None:
     ts = time.strftime("%H:%M:%S")
-    firmware_upload_state["logs"].append(f"[{ts}] {line}")
+    clean = ANSI_ESCAPE_RE.sub("", line)
+    firmware_upload_state["logs"].append(f"[{ts}] {clean}")
     firmware_upload_state["logs"] = firmware_upload_state["logs"][-300:]
+
+
+def _extract_sketch_include_headers(sketch_text: str) -> set[str]:
+    headers: set[str] = set()
+    for raw in sketch_text.splitlines():
+        line = raw.strip()
+        if not line.startswith("#include"):
+            continue
+        if "<" in line and ">" in line:
+            hdr = line.split("<", 1)[1].split(">", 1)[0].strip()
+            if hdr:
+                headers.add(hdr)
+        elif '"' in line:
+            parts = line.split('"')
+            if len(parts) >= 3 and parts[1].strip():
+                headers.add(parts[1].strip())
+    return headers
+
+
+def _arduino_installed_library_names() -> set[str]:
+    try:
+        completed = subprocess.run(
+            ["arduino-cli", "lib", "list", "--format", "json"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except FileNotFoundError:
+        return set()
+    except Exception:
+        return set()
+
+    if completed.returncode != 0:
+        return set()
+
+    try:
+        payload = json.loads(completed.stdout or "{}")
+    except Exception:
+        return set()
+
+    libs = payload.get("installed_libraries", []) if isinstance(payload, dict) else []
+    names: set[str] = set()
+    if not isinstance(libs, list):
+        return names
+
+    for item in libs:
+        if not isinstance(item, dict):
+            continue
+        direct = item.get("name")
+        nested = item.get("library") if isinstance(item.get("library"), dict) else {}
+        nested_name = nested.get("name")
+        for candidate in (direct, nested_name):
+            if isinstance(candidate, str) and candidate.strip():
+                names.add(candidate.strip().lower())
+    return names
+
+
+def _ensure_arduino_sketch_dependencies(sketch_file: Path) -> None:
+    sketch_text = sketch_file.read_text(encoding="utf-8", errors="replace")
+    includes = _extract_sketch_include_headers(sketch_text)
+    required = sorted({ARDUINO_HEADER_LIBRARY_MAP[h] for h in includes if h in ARDUINO_HEADER_LIBRARY_MAP})
+    if not required:
+        return
+
+    installed = _arduino_installed_library_names()
+    missing = [lib for lib in required if lib.lower() not in installed]
+    if not missing:
+        return
+
+    for library_name in missing:
+        _append_firmware_log(f"Installing Arduino library dependency: {library_name}")
+        try:
+            completed = subprocess.run(
+                ["arduino-cli", "lib", "install", library_name],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=240,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"Failed installing Arduino library '{library_name}': {exc}") from exc
+
+        if completed.returncode != 0:
+            err = (completed.stderr or completed.stdout or "").strip()
+            raise RuntimeError(
+                f"Missing Arduino dependency '{library_name}' and auto-install failed: {err}"
+            )
+
+        _append_firmware_log(f"Installed Arduino library: {library_name}")
 
 
 def _arm_safety_zone(arm: str) -> dict[str, Any]:
@@ -1363,6 +1461,8 @@ async def _run_firmware_upload(request: FirmwareUploadStartRequest) -> None:
             for src in selected_path.parent.glob(ext):
                 if src.is_file():
                     shutil.copy2(src, sketch_dir / src.name)
+
+        _ensure_arduino_sketch_dependencies(temp_sketch)
 
         if method == "serial":
             command = (
