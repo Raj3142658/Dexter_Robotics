@@ -51,7 +51,10 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 - `POST /trajectory/backend/start`
 - `POST /trajectory/backend/stop`
 - `POST /trajectory/generate`
+- `GET /trajectory/jobs`
 - `GET /trajectory/jobs/{job_id}`
+- `DELETE /trajectory/jobs/{job_id}`
+- `POST /trajectory/jobs/cleanup`
 - `GET /trajectory/download/{job_id}`
 
 Bridge helper scripts:

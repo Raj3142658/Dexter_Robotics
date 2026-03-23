@@ -1108,6 +1108,26 @@ async def trajectory_backend_status() -> dict:
     }
 
 
+@app.get("/trajectory/jobs")
+async def trajectory_jobs_list(limit: int = 20) -> dict:
+    bounded = max(1, min(200, int(limit)))
+    return _bridge_json_request("GET", f"/jobs?limit={bounded}", timeout_sec=10.0)
+
+
+@app.delete("/trajectory/jobs/{job_id}")
+async def trajectory_job_delete(job_id: str) -> dict:
+    job = job_id.strip()
+    if not job:
+        raise HTTPException(status_code=400, detail="job_id is required")
+    return _bridge_json_request("DELETE", f"/jobs/{job}", timeout_sec=10.0)
+
+
+@app.post("/trajectory/jobs/cleanup")
+async def trajectory_jobs_cleanup(keep_latest: int = 20) -> dict:
+    bounded = max(0, min(1000, int(keep_latest)))
+    return _bridge_json_request("POST", "/jobs/cleanup", payload={"keep_latest": bounded}, timeout_sec=12.0)
+
+
 @app.post("/trajectory/backend/start")
 async def trajectory_backend_start() -> dict:
     async with bridge_control_lock:

@@ -52,6 +52,20 @@ def _register_job(job: dict[str, Any]) -> None:
     _save_jobs_index()
 
 
+def _delete_job(job_id: str) -> dict[str, Any]:
+    removed = JOBS.pop(job_id, None)
+    output_file = JOBS_DIR / f"{job_id}.yaml"
+    file_deleted = False
+    if output_file.exists():
+        output_file.unlink()
+        file_deleted = True
+    _save_jobs_index()
+    return {
+        "removed_from_index": removed is not None,
+        "file_deleted": file_deleted,
+    }
+
+
 def _safe_waypoint_count(shape: dict[str, Any]) -> int:
     try:
         n = int(shape.get("n_points", 100))
@@ -156,6 +170,54 @@ async def list_jobs(limit: int = 20) -> dict[str, Any]:
         "ok": True,
         "count": len(jobs),
         "jobs": jobs[:bounded],
+    }
+
+
+@app.delete("/jobs/{job_id}")
+async def delete_job(job_id: str) -> dict[str, Any]:
+    result = _delete_job(job_id)
+    if not result["removed_from_index"] and not result["file_deleted"]:
+        raise HTTPException(status_code=404, detail=f"Unknown job_id: {job_id}")
+
+    return {
+        "ok": True,
+        "job_id": job_id,
+        **result,
+    }
+
+
+@app.post("/jobs/cleanup")
+async def cleanup_jobs(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    keep_latest = 20
+    if isinstance(payload, dict) and "keep_latest" in payload:
+        try:
+            keep_latest = max(0, min(1000, int(payload.get("keep_latest", 20))))
+        except Exception:
+            keep_latest = 20
+
+    jobs_sorted = sorted(JOBS.values(), key=lambda j: float(j.get("created_at", 0.0)), reverse=True)
+    keep_ids = {str(j.get("job_id")) for j in jobs_sorted[:keep_latest]}
+
+    removed_ids: list[str] = []
+    for job in jobs_sorted[keep_latest:]:
+        job_id = str(job.get("job_id"))
+        if not job_id:
+            continue
+        _delete_job(job_id)
+        removed_ids.append(job_id)
+
+    # Also prune orphan files that are not in active index.
+    for artifact in JOBS_DIR.glob("*.yaml"):
+        if artifact.stem not in keep_ids and artifact.stem not in {j.get("job_id") for j in JOBS.values()}:
+            artifact.unlink(missing_ok=True)
+
+    _save_jobs_index()
+    return {
+        "ok": True,
+        "kept": keep_latest,
+        "removed_count": len(removed_ids),
+        "removed_job_ids": removed_ids,
+        "remaining": len(JOBS),
     }
 
 
