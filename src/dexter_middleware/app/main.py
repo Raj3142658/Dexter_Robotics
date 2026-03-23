@@ -87,6 +87,7 @@ TRAJECTORY_BACKEND_MODE = os.getenv("DEXTER_TRAJECTORY_BACKEND_MODE", "auto").st
 NATIVE_TRAJECTORY_RUNTIME_DIR = REPO_ROOT / ".runtime" / "trajectory_native"
 NATIVE_TRAJECTORY_JOBS_DIR = NATIVE_TRAJECTORY_RUNTIME_DIR / "jobs"
 NATIVE_TRAJECTORY_INDEX_FILE = NATIVE_TRAJECTORY_RUNTIME_DIR / "jobs_index.json"
+BRIDGE_TRAJECTORY_JOBS_DIR = REPO_ROOT / ".runtime" / "trajectory_bridge" / "jobs"
 NATIVE_JOB_PREFIX = "native_"
 NATIVE_ARTIFACT_SCHEMA_VERSION = "dexter.trajectory.native.v1"
 TRAJECTORY_JOB_CONTRACT_VERSION = "dexter.trajectory.job.v1"
@@ -292,6 +293,67 @@ def _normalize_job_contract(job: dict[str, Any], backend_hint: str | None = None
     normalized.setdefault("status", "unknown")
     normalized.setdefault("contract_version", TRAJECTORY_JOB_CONTRACT_VERSION)
     return normalized
+
+
+def _load_artifact_text(job_id: str, backend: str) -> tuple[str, dict[str, Any]]:
+    if backend == "native":
+        native_job = _native_get_job(job_id)
+        output_path = Path(native_job["output_file"]) if native_job else (NATIVE_TRAJECTORY_JOBS_DIR / f"{job_id}.yaml")
+        if not output_path.exists():
+            raise HTTPException(status_code=404, detail=f"Output not found for job_id: {job_id}")
+        data = output_path.read_text(encoding="utf-8", errors="replace")
+        return data, {
+            "source": "disk",
+            "path": str(output_path),
+        }
+
+    bridge_job_path = BRIDGE_TRAJECTORY_JOBS_DIR / f"{job_id}.yaml"
+    if bridge_job_path.exists():
+        data = bridge_job_path.read_text(encoding="utf-8", errors="replace")
+        return data, {
+            "source": "disk",
+            "path": str(bridge_job_path),
+        }
+
+    body, _content_type, _disposition = _bridge_binary_request(f"/download/{job_id}", timeout_sec=30.0)
+    return body.decode("utf-8", errors="replace"), {
+        "source": "bridge-download",
+        "path": None,
+    }
+
+
+def _validate_artifact_text(text: str, expected_backend: str) -> dict[str, Any]:
+    lines = [line.rstrip("\n") for line in text.splitlines()]
+
+    def has_prefix(prefix: str) -> bool:
+        return any(line.startswith(prefix) for line in lines)
+
+    checks: list[dict[str, Any]] = []
+
+    def add_check(name: str, ok: bool, detail: str) -> None:
+        checks.append({"name": name, "ok": ok, "detail": detail})
+
+    add_check("schema_version", has_prefix("schema_version: dexter.trajectory.native.v1"), "schema version line")
+    add_check("kind", has_prefix("kind: dexter_trajectory_plan"), "plan kind line")
+    add_check("job_section", has_prefix("job:"), "job section present")
+    add_check("job_id", has_prefix("  id:"), "job id present")
+    add_check("job_backend", has_prefix(f"  backend: {expected_backend}"), "job backend matches")
+    add_check("provenance_section", has_prefix("provenance:"), "provenance section present")
+    add_check("provenance_backend", has_prefix(f"  backend_selected: {expected_backend}"), "provenance backend matches")
+    add_check("provenance_hash", has_prefix("  source_config_sha256:"), "config sha present")
+    add_check("request_section", has_prefix("request:"), "request section present")
+    add_check("request_config", has_prefix("  config:"), "request config present")
+    add_check("trajectory_section", has_prefix("trajectory:"), "trajectory section present")
+    add_check("waypoint_count", has_prefix("  waypoint_count:"), "waypoint count present")
+
+    missing = [c["name"] for c in checks if not c["ok"]]
+    return {
+        "ok": len(missing) == 0,
+        "checks": checks,
+        "missing": missing,
+        "line_count": len(lines),
+        "size_bytes": len(text.encode("utf-8")),
+    }
 
 
 def _save_native_jobs_index() -> None:
@@ -1756,6 +1818,37 @@ async def trajectory_download(job_id: str) -> Response:
     if disposition:
         headers["Content-Disposition"] = disposition
     return Response(content=body, media_type=content_type, headers=headers)
+
+
+@app.get("/trajectory/artifacts/validate/{job_id}")
+async def trajectory_artifact_validate(job_id: str, strict: bool = True) -> dict:
+    job = job_id.strip()
+    if not job:
+        raise HTTPException(status_code=400, detail="job_id is required")
+
+    # Reuse normalized job metadata so validation is consistent with middleware-facing contract.
+    meta = await trajectory_job_status(job)
+    backend = str(meta.get("backend", "bridge"))
+    if backend not in {"bridge", "native"}:
+        backend = "bridge"
+
+    text, source = _load_artifact_text(job, backend)
+    validation = _validate_artifact_text(text, expected_backend=backend)
+    payload = {
+        "ok": validation["ok"],
+        "job_id": job,
+        "backend": backend,
+        "strict": strict,
+        "contract_version": TRAJECTORY_JOB_CONTRACT_VERSION,
+        "artifact_schema_expected": NATIVE_ARTIFACT_SCHEMA_VERSION,
+        "artifact_schema_reported": meta.get("artifact_schema"),
+        "artifact_format_reported": meta.get("artifact_format"),
+        "artifact_source": source,
+        "validation": validation,
+    }
+    if strict and not validation["ok"]:
+        raise HTTPException(status_code=422, detail=payload)
+    return payload
 
 
 @app.post("/trajectory/safety/limits")

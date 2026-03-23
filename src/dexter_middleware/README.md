@@ -56,6 +56,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 - `DELETE /trajectory/jobs/{job_id}`
 - `POST /trajectory/jobs/cleanup`
 - `GET /trajectory/download/{job_id}`
+- `GET /trajectory/artifacts/validate/{job_id}`
 
 Backend selection:
 
@@ -79,6 +80,11 @@ Bridge artifact parity:
 
 - The local compatibility bridge now emits schema-tagged YAML artifacts using `schema_version: dexter.trajectory.native.v1` with bridge provenance.
 - This keeps downloaded artifact structure aligned between bridge and native generation paths.
+
+Strict artifact validation:
+
+- `GET /trajectory/artifacts/validate/{job_id}` validates required schema/provenance/trajectory keys.
+- Default `strict=true` returns HTTP 422 when required keys are missing.
 
 Bridge helper scripts:
 
