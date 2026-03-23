@@ -18,6 +18,7 @@
         <button class="tab-btn" data-tab="gazebo">Gazebo Studio</button>
         <button class="tab-btn" data-tab="fullstack">Full System Sim</button>
         <button class="tab-btn" data-tab="hardware">Hardware Console</button>
+        <button class="tab-btn" data-tab="ops">Health &amp; Ops</button>
         <button class="tab-btn" data-tab="shape">Shape Generation</button>
       </nav>
 
@@ -159,6 +160,84 @@
         <pre id="hardwareSessionHint">Waiting for action.</pre>
         <pre id="hardwareSessionLog">No session logs yet.</pre>
         <pre id="hardwareStatus">Waiting for status...</pre>
+      </section>
+
+      <section class="tab-panel" id="tab-ops">
+        <h2>Health &amp; Ops</h2>
+        <p class="hint">System monitor, cleanup tools, and firmware upload operations.</p>
+
+        <h3>Middleware Health Check</h3>
+        <div class="controls">
+          <button id="healthCheckBtn">Check Health</button>
+        </div>
+        <pre id="healthStatus">Waiting for health check...</pre>
+
+        <h3>System Monitor</h3>
+        <div class="controls">
+          <button id="systemMonitorBtn">Refresh Monitor</button>
+          <button id="systemCleanupBtn" class="ghost">Run Cleanup</button>
+        </div>
+        <div class="controls">
+          <label>Ports (comma-separated)
+            <input id="cleanupPorts" type="text" value="8080,8083,8084,8090" placeholder="8080,8083,8084,8090">
+          </label>
+          <label>Serial Port
+            <input id="cleanupSerialPort" type="text" value="/dev/ttyUSB0" placeholder="/dev/ttyUSB0">
+          </label>
+          <label>Port Cleanup
+            <select id="cleanupPortsEnabled">
+              <option value="true" selected>true</option>
+              <option value="false">false</option>
+            </select>
+          </label>
+          <label>Serial Cleanup
+            <select id="cleanupSerialEnabled">
+              <option value="true" selected>true</option>
+              <option value="false">false</option>
+            </select>
+          </label>
+        </div>
+        <pre id="systemMonitorStatus">Waiting for monitor status...</pre>
+        <pre id="systemCleanupStatus">No cleanup run yet.</pre>
+
+        <h3>Firmware Upload</h3>
+        <div class="controls">
+          <button id="firmwareRefreshFilesBtn" class="ghost">Refresh Files</button>
+          <button id="firmwareStatusBtn" class="ghost">Upload Status</button>
+          <button id="firmwareMdnsBtn" class="ghost">Auto-Detect ESP32 IP</button>
+        </div>
+        <div class="controls">
+          <label>Firmware File
+            <select id="firmwareFileSelect"></select>
+          </label>
+          <label>Method
+            <select id="firmwareMethod">
+              <option value="serial" selected>serial</option>
+              <option value="ota">ota</option>
+            </select>
+          </label>
+          <label id="firmwareSerialPortField">Serial Port
+            <input id="firmwareSerialPort" type="text" value="/dev/ttyUSB0" placeholder="/dev/ttyUSB0">
+          </label>
+          <label id="firmwareSerialBaudField">Serial Baud
+            <input id="firmwareSerialBaud" type="number" min="9600" max="2000000" value="921600">
+          </label>
+          <label>FQBN
+            <input id="firmwareFqbn" type="text" value="esp32:esp32:esp32" placeholder="esp32:esp32:esp32">
+          </label>
+          <label id="firmwareOtaIpField" style="display:none;">OTA IP/Hostname
+            <input id="firmwareOtaIp" type="text" value="" placeholder="dexter-esp32.local or 192.168.x.x">
+          </label>
+          <label id="firmwareOtaPasswordField" style="display:none;">OTA Password
+            <input id="firmwareOtaPassword" type="password" value="" placeholder="optional">
+          </label>
+        </div>
+        <div class="controls">
+          <button id="firmwareStartBtn">Start Firmware Upload</button>
+        </div>
+        <pre id="firmwareMdnsStatus">No mDNS lookup yet.</pre>
+        <pre id="firmwareUploadStatus">Waiting for firmware upload status...</pre>
+        <pre id="firmwareUploadLog">No firmware logs yet.</pre>
       </section>
 
       <section class="tab-panel" id="tab-shape">

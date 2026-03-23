@@ -9,6 +9,12 @@ const moveitStatusEl = document.getElementById("moveitStatus");
 const gazeboStatusEl = document.getElementById("gazeboStatus");
 const fullStackStatusEl = document.getElementById("fullStackStatus");
 const hardwareStatusEl = document.getElementById("hardwareStatus");
+const healthStatusEl = document.getElementById("healthStatus");
+const systemMonitorStatusEl = document.getElementById("systemMonitorStatus");
+const systemCleanupStatusEl = document.getElementById("systemCleanupStatus");
+const firmwareMdnsStatusEl = document.getElementById("firmwareMdnsStatus");
+const firmwareUploadStatusEl = document.getElementById("firmwareUploadStatus");
+const firmwareUploadLogEl = document.getElementById("firmwareUploadLog");
 
 const modelLogEl = document.getElementById("modelLog");
 const plannerLogEl = document.getElementById("plannerLog");
@@ -20,6 +26,7 @@ const hardwareSessionHintEl = document.getElementById("hardwareSessionHint");
 const hardwareSessionLogEl = document.getElementById("hardwareSessionLog");
 
 let hardwarePollTimer = null;
+let firmwarePollTimer = null;
 
 function nowTime() {
   return new Date().toLocaleTimeString();
@@ -111,6 +118,29 @@ function stopHardwarePolling() {
   }
 }
 
+function parsePortList(raw) {
+  return String(raw || "")
+    .split(",")
+    .map((v) => Number(v.trim()))
+    .filter((v) => Number.isInteger(v) && v > 0 && v <= 65535);
+}
+
+function updateFirmwareMethodFields() {
+  const method = document.getElementById("firmwareMethod")?.value || "serial";
+  const serialVisible = method === "serial";
+  const otaVisible = method === "ota";
+
+  const serialPortField = document.getElementById("firmwareSerialPortField");
+  const serialBaudField = document.getElementById("firmwareSerialBaudField");
+  const otaIpField = document.getElementById("firmwareOtaIpField");
+  const otaPasswordField = document.getElementById("firmwareOtaPasswordField");
+
+  if (serialPortField) serialPortField.style.display = serialVisible ? "" : "none";
+  if (serialBaudField) serialBaudField.style.display = serialVisible ? "" : "none";
+  if (otaIpField) otaIpField.style.display = otaVisible ? "" : "none";
+  if (otaPasswordField) otaPasswordField.style.display = otaVisible ? "" : "none";
+}
+
 function activateTab(tabName) {
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.tab === tabName);
@@ -124,6 +154,179 @@ async function getStatus() {
   const res = await fetch(`${API_BASE}/status`);
   const data = await res.json();
   statusEl.textContent = JSON.stringify(data, null, 2);
+}
+
+async function getHealthStatus() {
+  try {
+    const res = await fetch(`${API_BASE}/health`);
+    const data = await res.json();
+    healthStatusEl.textContent = JSON.stringify(data, null, 2);
+  } catch (err) {
+    healthStatusEl.textContent = `Failed to fetch health: ${err.message}`;
+  }
+}
+
+async function getSystemMonitorStatus() {
+  try {
+    const res = await fetch(`${API_BASE}/system/monitor`);
+    const data = await res.json();
+    systemMonitorStatusEl.textContent = JSON.stringify(data, null, 2);
+  } catch (err) {
+    systemMonitorStatusEl.textContent = `Failed to fetch system monitor: ${err.message}`;
+  }
+}
+
+async function runSystemCleanup() {
+  const payload = {
+    ports: parsePortList(document.getElementById("cleanupPorts")?.value),
+    serial_port: document.getElementById("cleanupSerialPort")?.value || "/dev/ttyUSB0",
+    include_port_cleanup: (document.getElementById("cleanupPortsEnabled")?.value || "true") === "true",
+    include_serial_cleanup: (document.getElementById("cleanupSerialEnabled")?.value || "true") === "true",
+  };
+
+  const ok = window.confirm("Run system cleanup (stop sessions + cleanup selected resources)?");
+  if (!ok) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/system/cleanup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    systemCleanupStatusEl.textContent = JSON.stringify(data, null, 2);
+    if (!res.ok) {
+      logGlobal(`ERROR /system/cleanup: ${JSON.stringify(data)}`);
+      return;
+    }
+    logGlobal("OK /system/cleanup");
+    await Promise.all([getStatus(), getSystemMonitorStatus(), getHardwareStatus()]);
+  } catch (err) {
+    systemCleanupStatusEl.textContent = `Cleanup failed: ${err.message}`;
+  }
+}
+
+function renderFirmwareFiles(data) {
+  const select = document.getElementById("firmwareFileSelect");
+  if (!select) {
+    return;
+  }
+  const files = Array.isArray(data?.files) ? data.files : [];
+
+  select.innerHTML = "";
+  if (!files.length) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "No firmware files found";
+    select.appendChild(opt);
+    return;
+  }
+
+  for (const file of files) {
+    const opt = document.createElement("option");
+    opt.value = file.name;
+    opt.textContent = `${file.name} (${file.size_bytes} bytes)`;
+    select.appendChild(opt);
+  }
+}
+
+function renderFirmwareStatus(data) {
+  firmwareUploadStatusEl.textContent = JSON.stringify(data, null, 2);
+  const logs = Array.isArray(data?.logs) ? data.logs : [];
+  firmwareUploadLogEl.textContent = logs.length ? logs.join("\n") : "No firmware logs yet.";
+}
+
+async function getFirmwareFiles() {
+  try {
+    const res = await fetch(`${API_BASE}/firmware/files`);
+    const data = await res.json();
+    renderFirmwareFiles(data);
+  } catch (err) {
+    firmwareUploadStatusEl.textContent = `Failed to fetch firmware files: ${err.message}`;
+  }
+}
+
+async function getFirmwareUploadStatus() {
+  try {
+    const res = await fetch(`${API_BASE}/firmware/upload/status`);
+    const data = await res.json();
+    renderFirmwareStatus(data);
+
+    if (data.running) {
+      if (!firmwarePollTimer) {
+        firmwarePollTimer = setInterval(() => {
+          getFirmwareUploadStatus();
+        }, 1200);
+      }
+    } else if (firmwarePollTimer) {
+      clearInterval(firmwarePollTimer);
+      firmwarePollTimer = null;
+    }
+  } catch (err) {
+    firmwareUploadStatusEl.textContent = `Failed to fetch firmware status: ${err.message}`;
+    if (firmwarePollTimer) {
+      clearInterval(firmwarePollTimer);
+      firmwarePollTimer = null;
+    }
+  }
+}
+
+async function firmwareMdnsLookup() {
+  try {
+    const res = await fetch(`${API_BASE}/firmware/mdns-lookup`);
+    const data = await res.json();
+    firmwareMdnsStatusEl.textContent = JSON.stringify(data, null, 2);
+    if (data.success && data.ip && document.getElementById("firmwareMethod")?.value === "ota") {
+      document.getElementById("firmwareOtaIp").value = data.ip;
+    }
+  } catch (err) {
+    firmwareMdnsStatusEl.textContent = `mDNS lookup failed: ${err.message}`;
+  }
+}
+
+async function startFirmwareUpload() {
+  const filename = document.getElementById("firmwareFileSelect")?.value || "";
+  if (!filename) {
+    firmwareUploadStatusEl.textContent = "Select a firmware file first.";
+    return;
+  }
+
+  const method = document.getElementById("firmwareMethod")?.value || "serial";
+  const payload = {
+    filename,
+    method,
+    serial_port: document.getElementById("firmwareSerialPort")?.value || "/dev/ttyUSB0",
+    serial_baud: Number(document.getElementById("firmwareSerialBaud")?.value || 921600),
+    fqbn: document.getElementById("firmwareFqbn")?.value || "esp32:esp32:esp32",
+    ota_ip: document.getElementById("firmwareOtaIp")?.value || "",
+    ota_password: document.getElementById("firmwareOtaPassword")?.value || "",
+  };
+
+  if (method === "ota" && !payload.ota_ip.trim()) {
+    firmwareUploadStatusEl.textContent = "OTA method requires OTA IP/hostname.";
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/firmware/upload/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    firmwareUploadStatusEl.textContent = JSON.stringify(data, null, 2);
+    if (!res.ok) {
+      logGlobal(`ERROR /firmware/upload/start: ${JSON.stringify(data)}`);
+      return;
+    }
+
+    logGlobal(`OK /firmware/upload/start (${filename})`);
+    await getFirmwareUploadStatus();
+  } catch (err) {
+    firmwareUploadStatusEl.textContent = `Firmware upload request failed: ${err.message}`;
+  }
 }
 
 async function getRvizStatus() {
@@ -348,12 +551,15 @@ function wireHardware() {
 function wireGlobalButtons() {
   document.getElementById("refreshAllBtn").addEventListener("click", async () => {
     await Promise.all([
+      getHealthStatus(),
       getStatus(),
       getRvizStatus(),
       getMoveitStatus(),
       getGazeboStatus(),
       getFullStackStatus(),
       getHardwareStatus(),
+      getSystemMonitorStatus(),
+      getFirmwareUploadStatus(),
     ]);
     logGlobal("All status panels refreshed");
   });
@@ -374,6 +580,40 @@ function wireGlobalButtons() {
         window.location.href = "about:blank";
       }, 250);
     }, 450);
+  });
+}
+
+function wireOps() {
+  document.getElementById("healthCheckBtn")?.addEventListener("click", async () => {
+    await getHealthStatus();
+  });
+
+  document.getElementById("systemMonitorBtn")?.addEventListener("click", async () => {
+    await getSystemMonitorStatus();
+  });
+
+  document.getElementById("systemCleanupBtn")?.addEventListener("click", async () => {
+    await runSystemCleanup();
+  });
+
+  document.getElementById("firmwareMethod")?.addEventListener("change", () => {
+    updateFirmwareMethodFields();
+  });
+
+  document.getElementById("firmwareRefreshFilesBtn")?.addEventListener("click", async () => {
+    await getFirmwareFiles();
+  });
+
+  document.getElementById("firmwareStatusBtn")?.addEventListener("click", async () => {
+    await getFirmwareUploadStatus();
+  });
+
+  document.getElementById("firmwareMdnsBtn")?.addEventListener("click", async () => {
+    await firmwareMdnsLookup();
+  });
+
+  document.getElementById("firmwareStartBtn")?.addEventListener("click", async () => {
+    await startFirmwareUpload();
   });
 }
 
@@ -404,16 +644,22 @@ async function initialize() {
   wireGazebo();
   wireFullStack();
   wireHardware();
+  wireOps();
   wireGlobalButtons();
   updateHardwareTransportFields();
+  updateFirmwareMethodFields();
 
   await Promise.all([
+    getHealthStatus(),
     getStatus(),
     getRvizStatus(),
     getMoveitStatus(),
     getGazeboStatus(),
     getFullStackStatus(),
     getHardwareStatus(),
+    getSystemMonitorStatus(),
+    getFirmwareFiles(),
+    getFirmwareUploadStatus(),
   ]);
 
   connectEvents();
