@@ -72,6 +72,10 @@ LAUNCH_TRANSITION_COOLDOWN_SEC = 2.0
 FIRMWARE_DIR = REPO_ROOT / "src" / "dexter_arm_hardware" / "firmware"
 SAFETY_CONFIG_FILE = REPO_ROOT / "src" / "dexter_middleware" / "config" / "safety_zones.json"
 BRIDGE_BASE_URL = os.getenv("DEXTER_TRAJECTORY_BRIDGE_URL", "http://127.0.0.1:8765").rstrip("/")
+BRIDGE_START_SCRIPT = Path(
+    os.getenv("DEXTER_TRAJECTORY_BRIDGE_START_SCRIPT", str(REPO_ROOT / "scripts" / "start_trajectory_bridge.sh"))
+)
+BRIDGE_RECOVERY_HINT = os.getenv("DEXTER_TRAJECTORY_BRIDGE_RECOVERY_HINT", "").strip()
 
 DEFAULT_TRAJECTORY_SAFETY: dict[str, Any] = {
     "defaults": {
@@ -174,6 +178,38 @@ def _bridge_probe(timeout_sec: float = 1.5) -> tuple[bool, str]:
         return False, f"Bridge unreachable: {exc.reason}"
     except Exception as exc:
         return False, f"Bridge probe failed: {exc}"
+
+
+def _bridge_recovery_hints(bridge_online: bool) -> list[str]:
+    if bridge_online:
+        return []
+
+    hints: list[str] = []
+    if BRIDGE_START_SCRIPT.exists():
+        hints.append(f"Run bridge start script: {BRIDGE_START_SCRIPT}")
+    else:
+        hints.append(
+            "Start the trajectory bridge service so /ping, /generate, /jobs/{id}, and /download/{id} are available"
+        )
+
+    hints.append(f"Verify bridge URL: {BRIDGE_BASE_URL}")
+    if BRIDGE_RECOVERY_HINT:
+        hints.append(BRIDGE_RECOVERY_HINT)
+    return hints
+
+
+def _bridge_status_payload() -> dict[str, Any]:
+    bridge_online, bridge_detail = _bridge_probe()
+    hints = _bridge_recovery_hints(bridge_online)
+    return {
+        "bridge_online": bridge_online,
+        "bridge_detail": bridge_detail,
+        "bridge_base_url": BRIDGE_BASE_URL,
+        "bridge_start_script": str(BRIDGE_START_SCRIPT),
+        "bridge_start_script_exists": BRIDGE_START_SCRIPT.exists(),
+        "recovery_hints": hints,
+        "can_generate": bridge_online,
+    }
 
 
 async def broadcast(event: EventMessage) -> None:
@@ -1011,18 +1047,31 @@ async def trajectory_generate(req: TrajectoryGenerateRequest) -> dict:
             detail=f"Safety preflight failed for {arm} arm: {violations[0]}",
         )
 
+    bridge_status = _bridge_status_payload()
+    if not bridge_status["bridge_online"]:
+        hints = bridge_status.get("recovery_hints", [])
+        hint_msg = f" Hint: {hints[0]}" if hints else ""
+        raise HTTPException(
+            status_code=503,
+            detail=f"{bridge_status['bridge_detail']}.{hint_msg}",
+        )
+
     return _bridge_json_request("POST", "/generate", payload=config, timeout_sec=20.0)
 
 
 @app.get("/trajectory/backend/status")
 async def trajectory_backend_status() -> dict:
-    bridge_online, bridge_detail = _bridge_probe()
+    bridge_status = _bridge_status_payload()
     return {
         "ok": True,
         "middleware_online": True,
-        "bridge_online": bridge_online,
-        "bridge_base_url": BRIDGE_BASE_URL,
-        "message": bridge_detail,
+        "bridge_online": bool(bridge_status["bridge_online"]),
+        "bridge_base_url": bridge_status["bridge_base_url"],
+        "bridge_start_script": bridge_status["bridge_start_script"],
+        "bridge_start_script_exists": bool(bridge_status["bridge_start_script_exists"]),
+        "recovery_hints": bridge_status["recovery_hints"],
+        "can_generate": bool(bridge_status["can_generate"]),
+        "message": bridge_status["bridge_detail"],
     }
 
 

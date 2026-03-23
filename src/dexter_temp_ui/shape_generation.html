@@ -1273,6 +1273,8 @@ let safetyLimitsCache = null;
 let safetySyncTimer = null;
 let safetyApplying = false;
 let lastBackendDiag = '';
+let lastBackendHintSig = '';
+let lastRecoveryHints = [];
 const SAFETY_API_BASE = 'http://127.0.0.1:8084';
 const TRAJECTORY_API_BASE = 'http://127.0.0.1:8084';
 
@@ -1457,15 +1459,21 @@ async function pingServer() {
     const r = await fetch(`${url}/trajectory/backend/status`, { signal: AbortSignal.timeout(2000) });
     if (r.ok) {
       const data = await r.json();
-      setServerStatus(Boolean(data.middleware_online), Boolean(data.bridge_online), data.message || '');
+      setServerStatus(
+        Boolean(data.middleware_online),
+        Boolean(data.bridge_online),
+        data.message || '',
+        Array.isArray(data.recovery_hints) ? data.recovery_hints : []
+      );
       return;
     }
   } catch(e) {}
-  setServerStatus(false, false, 'Middleware unreachable');
+  setServerStatus(false, false, 'Middleware unreachable', []);
 }
 
-function setServerStatus(middlewareOnline, bridgeOnline, diagMessage = '') {
+function setServerStatus(middlewareOnline, bridgeOnline, diagMessage = '', recoveryHints = []) {
   serverOnline = Boolean(middlewareOnline && bridgeOnline);
+  lastRecoveryHints = recoveryHints;
   const dot  = document.getElementById('serverDot');
   const txt  = document.getElementById('serverStatus');
   const trig = document.getElementById('genTrigger');
@@ -1489,6 +1497,14 @@ function setServerStatus(middlewareOnline, bridgeOnline, diagMessage = '') {
   if (diagMessage && diagMessage !== lastBackendDiag) {
     termLog(`[BACKEND] ${diagMessage}`, bridgeOnline ? 'info' : 'warn');
     lastBackendDiag = diagMessage;
+  }
+
+  if (recoveryHints.length) {
+    const sig = recoveryHints.join(' | ');
+    if (sig !== lastBackendHintSig) {
+      for (const hint of recoveryHints) termLog(`[RECOVERY] ${hint}`, 'warn');
+      lastBackendHintSig = sig;
+    }
   }
 }
 
@@ -1628,6 +1644,9 @@ function termClear() {
 async function generate() {
   if (!serverOnline) {
     termLog('[ERROR] Generation backend is offline. Ensure middleware (:8084) and trajectory bridge are both running.', 'error');
+    if (lastRecoveryHints.length) {
+      for (const hint of lastRecoveryHints) termLog(`[HINT] ${hint}`, 'warn');
+    }
     return;
   }
 
