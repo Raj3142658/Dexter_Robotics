@@ -44,3 +44,26 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 - `GET /ros/hardware/status`
 - `POST /ros/hardware/start`
 - `POST /ros/hardware/stop`
+
+## Trajectory Backend Ops
+
+- `GET /trajectory/backend/status`
+- `POST /trajectory/backend/start`
+- `POST /trajectory/backend/stop`
+- `POST /trajectory/generate`
+- `GET /trajectory/jobs/{job_id}`
+- `GET /trajectory/download/{job_id}`
+
+Bridge helper scripts:
+
+```bash
+/home/raj/Dexter_Robotics/scripts/start_trajectory_bridge.sh
+/home/raj/Dexter_Robotics/scripts/stop_trajectory_bridge.sh
+/home/raj/Dexter_Robotics/scripts/bridge_status.sh
+```
+
+End-to-end smoke test:
+
+```bash
+/home/raj/Dexter_Robotics/scripts/trajectory_smoke_test.sh
+```
