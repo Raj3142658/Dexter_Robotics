@@ -70,6 +70,11 @@ Native artifact contract (`backend=native`):
 - Includes provenance fields (`backend_selected`, `source_config_sha256`, bridge status at generation time).
 - Job status payload includes `artifact_schema`, `artifact_format`, and `path_length_m`.
 
+Middleware job payload contract normalization:
+
+- `POST /trajectory/generate`, `GET /trajectory/jobs`, and `GET /trajectory/jobs/{job_id}` return `contract_version: dexter.trajectory.job.v1`.
+- Middleware always returns `backend` and artifact metadata keys, including bridge compatibility defaults.
+
 Bridge helper scripts:
 
 ```bash

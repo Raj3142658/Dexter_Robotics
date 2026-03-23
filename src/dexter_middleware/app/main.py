@@ -89,6 +89,8 @@ NATIVE_TRAJECTORY_JOBS_DIR = NATIVE_TRAJECTORY_RUNTIME_DIR / "jobs"
 NATIVE_TRAJECTORY_INDEX_FILE = NATIVE_TRAJECTORY_RUNTIME_DIR / "jobs_index.json"
 NATIVE_JOB_PREFIX = "native_"
 NATIVE_ARTIFACT_SCHEMA_VERSION = "dexter.trajectory.native.v1"
+TRAJECTORY_JOB_CONTRACT_VERSION = "dexter.trajectory.job.v1"
+BRIDGE_ARTIFACT_SCHEMA_VERSION = "dexter.trajectory.bridge.compat.v1"
 NATIVE_TRAJECTORY_JOBS: dict[str, dict[str, Any]] = {}
 
 NATIVE_TRAJECTORY_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
@@ -260,6 +262,36 @@ def _normalize_trajectory_backend_mode(mode: str) -> str:
     if value in {"auto", "bridge", "native"}:
         return value
     return "auto"
+
+
+def _infer_artifact_format_from_path(output_file: Any) -> str:
+    if not isinstance(output_file, str) or not output_file.strip():
+        return "unknown"
+    low = output_file.strip().lower()
+    if low.endswith(".yaml") or low.endswith(".yml"):
+        return "yaml"
+    if low.endswith(".json"):
+        return "json"
+    return "unknown"
+
+
+def _normalize_job_contract(job: dict[str, Any], backend_hint: str | None = None) -> dict[str, Any]:
+    normalized = dict(job)
+    backend = str(normalized.get("backend") or backend_hint or "bridge").strip().lower()
+    if backend not in {"bridge", "native"}:
+        backend = "bridge"
+    normalized["backend"] = backend
+
+    if backend == "native":
+        normalized.setdefault("artifact_schema", NATIVE_ARTIFACT_SCHEMA_VERSION)
+        normalized.setdefault("artifact_format", "yaml")
+    else:
+        normalized.setdefault("artifact_schema", BRIDGE_ARTIFACT_SCHEMA_VERSION)
+        normalized.setdefault("artifact_format", _infer_artifact_format_from_path(normalized.get("output_file")))
+
+    normalized.setdefault("status", "unknown")
+    normalized.setdefault("contract_version", TRAJECTORY_JOB_CONTRACT_VERSION)
+    return normalized
 
 
 def _save_native_jobs_index() -> None:
@@ -521,14 +553,14 @@ def _native_generate(config: dict[str, Any], *, preflight: dict[str, Any]) -> di
     meta_file = NATIVE_TRAJECTORY_JOBS_DIR / f"{job_id}.meta.json"
     meta_file.write_text(json.dumps(job, indent=2), encoding="utf-8")
     _register_native_job(job)
-    return {
+    return _normalize_job_contract({
         "job_id": job_id,
         "status": "queued",
         "output_file": str(output_file),
         "backend": "native",
         "artifact_schema": str(summary["artifact_schema"]),
         "artifact_format": str(summary["artifact_format"]),
-    }
+    }, backend_hint="native")
 
 
 def _native_get_job(job_id: str) -> dict[str, Any] | None:
@@ -1472,8 +1504,7 @@ async def trajectory_generate(req: TrajectoryGenerateRequest) -> dict:
         )
 
     bridge_resp = _bridge_json_request("POST", "/generate", payload=config, timeout_sec=20.0)
-    bridge_resp.setdefault("backend", "bridge")
-    return bridge_resp
+    return _normalize_job_contract(bridge_resp, backend_hint="bridge")
 
 
 @app.get("/trajectory/backend/status")
@@ -1495,6 +1526,7 @@ async def trajectory_backend_status() -> dict:
         "can_generate": can_generate,
         "configured_backend_mode": configured_mode,
         "selected_generation_backend": selected_backend,
+        "trajectory_job_contract_version": TRAJECTORY_JOB_CONTRACT_VERSION,
         "native_artifact_schema": NATIVE_ARTIFACT_SCHEMA_VERSION,
         "native_jobs_count": len(NATIVE_TRAJECTORY_JOBS),
         "message": bridge_status["bridge_detail"],
@@ -1504,7 +1536,7 @@ async def trajectory_backend_status() -> dict:
 @app.get("/trajectory/jobs")
 async def trajectory_jobs_list(limit: int = 20) -> dict:
     bounded = max(1, min(200, int(limit)))
-    native_jobs = _native_list_jobs(bounded)
+    native_jobs = [_normalize_job_contract(j, backend_hint="native") for j in _native_list_jobs(bounded)]
     bridge_jobs: list[dict[str, Any]] = []
     bridge_error: str | None = None
 
@@ -1515,9 +1547,7 @@ async def trajectory_jobs_list(limit: int = 20) -> dict:
             if isinstance(raw_jobs, list):
                 for job in raw_jobs:
                     if isinstance(job, dict):
-                        j = dict(job)
-                        j.setdefault("backend", "bridge")
-                        bridge_jobs.append(j)
+                        bridge_jobs.append(_normalize_job_contract(job, backend_hint="bridge"))
         except HTTPException as exc:
             bridge_error = str(exc.detail)
 
@@ -1701,11 +1731,9 @@ async def trajectory_job_status(job_id: str) -> dict:
         raise HTTPException(status_code=400, detail="job_id is required")
     native_job = _native_get_job(job)
     if native_job is not None:
-        return native_job
+        return _normalize_job_contract(native_job, backend_hint="native")
     bridge_resp = _bridge_json_request("GET", f"/jobs/{job}", timeout_sec=10.0)
-    if isinstance(bridge_resp, dict):
-        bridge_resp.setdefault("backend", "bridge")
-    return bridge_resp
+    return _normalize_job_contract(bridge_resp, backend_hint="bridge")
 
 
 @app.get("/trajectory/download/{job_id}")

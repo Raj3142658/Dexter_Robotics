@@ -32,6 +32,8 @@ python3 - <<'PY' "$JOB_JSON"
 import json,sys
 obj=json.loads(sys.argv[1])
 assert obj.get('status') == 'done', obj
+assert obj.get('backend') == 'bridge', obj
+assert obj.get('contract_version') == 'dexter.trajectory.job.v1', obj
 print(f"  - status: {obj.get('status')}, waypoints: {obj.get('waypoints')}")
 PY
 
@@ -97,6 +99,7 @@ obj=json.loads(sys.argv[1])
 assert obj.get('status') == 'done', obj
 assert obj.get('backend') == 'native', obj
 assert obj.get('artifact_schema') == 'dexter.trajectory.native.v1', obj
+assert obj.get('contract_version') == 'dexter.trajectory.job.v1', obj
 print(f"  - status: {obj.get('status')}, backend: {obj.get('backend')}")
 PY
 
