@@ -160,6 +160,22 @@ def _bridge_is_online(timeout_sec: float = 1.5) -> bool:
         return False
 
 
+def _bridge_probe(timeout_sec: float = 1.5) -> tuple[bool, str]:
+    req = urllib.request.Request(url=f"{BRIDGE_BASE_URL}/ping", method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+            status = int(getattr(resp, "status", 0))
+            if status == 200:
+                return True, "ready"
+            return False, f"Bridge responded with HTTP {status}"
+    except urllib.error.HTTPError as exc:
+        return False, f"Bridge HTTP {exc.code}"
+    except urllib.error.URLError as exc:
+        return False, f"Bridge unreachable: {exc.reason}"
+    except Exception as exc:
+        return False, f"Bridge probe failed: {exc}"
+
+
 async def broadcast(event: EventMessage) -> None:
     if not clients:
         return
@@ -1000,13 +1016,13 @@ async def trajectory_generate(req: TrajectoryGenerateRequest) -> dict:
 
 @app.get("/trajectory/backend/status")
 async def trajectory_backend_status() -> dict:
-    bridge_online = _bridge_is_online()
+    bridge_online, bridge_detail = _bridge_probe()
     return {
         "ok": True,
         "middleware_online": True,
         "bridge_online": bridge_online,
         "bridge_base_url": BRIDGE_BASE_URL,
-        "message": "ready" if bridge_online else "Bridge backend is offline",
+        "message": bridge_detail,
     }
 
 

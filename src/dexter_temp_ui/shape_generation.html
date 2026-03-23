@@ -1272,6 +1272,7 @@ let activeEventSrc = null;
 let safetyLimitsCache = null;
 let safetySyncTimer = null;
 let safetyApplying = false;
+let lastBackendDiag = '';
 const SAFETY_API_BASE = 'http://127.0.0.1:8084';
 const TRAJECTORY_API_BASE = 'http://127.0.0.1:8084';
 
@@ -1456,14 +1457,14 @@ async function pingServer() {
     const r = await fetch(`${url}/trajectory/backend/status`, { signal: AbortSignal.timeout(2000) });
     if (r.ok) {
       const data = await r.json();
-      setServerStatus(Boolean(data.middleware_online), Boolean(data.bridge_online));
+      setServerStatus(Boolean(data.middleware_online), Boolean(data.bridge_online), data.message || '');
       return;
     }
   } catch(e) {}
-  setServerStatus(false, false);
+  setServerStatus(false, false, 'Middleware unreachable');
 }
 
-function setServerStatus(middlewareOnline, bridgeOnline) {
+function setServerStatus(middlewareOnline, bridgeOnline, diagMessage = '') {
   serverOnline = Boolean(middlewareOnline && bridgeOnline);
   const dot  = document.getElementById('serverDot');
   const txt  = document.getElementById('serverStatus');
@@ -1483,6 +1484,11 @@ function setServerStatus(middlewareOnline, bridgeOnline) {
     dot.style.boxShadow     = '0 0 8px #ff4444';
     txt.textContent         = 'MIDDLEWARE: OFFLINE';
     trig.classList.add('server-down');
+  }
+
+  if (diagMessage && diagMessage !== lastBackendDiag) {
+    termLog(`[BACKEND] ${diagMessage}`, bridgeOnline ? 'info' : 'warn');
+    lastBackendDiag = diagMessage;
   }
 }
 
