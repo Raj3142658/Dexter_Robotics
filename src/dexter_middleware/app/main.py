@@ -392,6 +392,50 @@ def _artifact_validation_payload(job_id: str, strict: bool = True) -> dict[str, 
     return payload
 
 
+def _execution_precheck_payload(
+    *,
+    artifact_job_id: str | None = None,
+    artifact_strict: bool = True,
+) -> dict[str, Any]:
+    artifact = None
+    artifact_ok = True
+    normalized_job_id = (artifact_job_id or "").strip()
+
+    if normalized_job_id:
+        artifact = _artifact_validation_payload(normalized_job_id, strict=artifact_strict)
+        artifact_ok = bool(artifact.get("ok"))
+
+    readiness = {
+        "connected": bool(state.connected),
+        "enabled": bool(state.enabled),
+        "trajectory_running": bool(state.trajectory_running),
+    }
+    ready_for_execute = readiness["connected"] and readiness["enabled"] and not readiness["trajectory_running"]
+    can_execute_now = bool(ready_for_execute and artifact_ok)
+
+    reasons: list[str] = []
+    if not readiness["connected"]:
+        reasons.append("robot_not_connected")
+    if not readiness["enabled"]:
+        reasons.append("robot_not_enabled")
+    if readiness["trajectory_running"]:
+        reasons.append("trajectory_already_running")
+    if not artifact_ok:
+        reasons.append("artifact_validation_failed")
+
+    return {
+        "ok": can_execute_now,
+        "can_execute_now": can_execute_now,
+        "robot_ready": ready_for_execute,
+        "readiness": readiness,
+        "artifact_required": bool(normalized_job_id),
+        "artifact_job_id": normalized_job_id or None,
+        "artifact_strict": artifact_strict,
+        "artifact": artifact,
+        "reasons": reasons,
+    }
+
+
 def _save_native_jobs_index() -> None:
     payload = {
         "saved_at": time.time(),
@@ -1508,18 +1552,21 @@ async def execute_trajectory(
     artifact_job_id: str | None = None,
     artifact_strict: bool = True,
 ) -> dict:
-    if not state.connected or not state.enabled:
+    precheck = _execution_precheck_payload(
+        artifact_job_id=artifact_job_id,
+        artifact_strict=artifact_strict,
+    )
+    if not precheck["readiness"]["connected"] or not precheck["readiness"]["enabled"]:
         raise HTTPException(status_code=400, detail="Robot must be connected and enabled")
-    if state.trajectory_running:
+    if precheck["readiness"]["trajectory_running"]:
         raise HTTPException(status_code=409, detail="Another trajectory is already running")
-
-    artifact_validation = None
-    if artifact_job_id is not None and artifact_job_id.strip():
-        artifact_validation = _artifact_validation_payload(artifact_job_id.strip(), strict=artifact_strict)
 
     state.trajectory_running = True
     state.trajectory_paused = False
-    state.trajectory_name = req.name if artifact_validation is None else f"{req.name} ({artifact_job_id.strip()})"
+    if precheck["artifact_job_id"]:
+        state.trajectory_name = f"{req.name} ({precheck['artifact_job_id']})"
+    else:
+        state.trajectory_name = req.name
     state.trajectory_progress = 0.0
     state.worker_task = asyncio.create_task(_run_trajectory(req.name, req.duration_sec))
 
@@ -1532,15 +1579,26 @@ async def execute_trajectory(
     )
 
     payload = snapshot()
-    if artifact_validation is not None:
+    if precheck["artifact"] is not None:
         payload["execution_guard"] = {
-            "artifact_job_id": artifact_validation["job_id"],
-            "strict": artifact_validation["strict"],
-            "ok": artifact_validation["ok"],
-            "backend": artifact_validation["backend"],
-            "artifact_schema_reported": artifact_validation["artifact_schema_reported"],
+            "artifact_job_id": precheck["artifact"]["job_id"],
+            "strict": precheck["artifact"]["strict"],
+            "ok": precheck["artifact"]["ok"],
+            "backend": precheck["artifact"]["backend"],
+            "artifact_schema_reported": precheck["artifact"]["artifact_schema_reported"],
         }
     return payload
+
+
+@app.get("/trajectory/execute/precheck")
+async def trajectory_execute_precheck(
+    artifact_job_id: str | None = None,
+    artifact_strict: bool = True,
+) -> dict:
+    return _execution_precheck_payload(
+        artifact_job_id=artifact_job_id,
+        artifact_strict=artifact_strict,
+    )
 
 
 @app.post("/trajectory/pause")

@@ -57,6 +57,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 - `POST /trajectory/jobs/cleanup`
 - `GET /trajectory/download/{job_id}`
 - `GET /trajectory/artifacts/validate/{job_id}`
+- `GET /trajectory/execute/precheck`
 
 Backend selection:
 
@@ -91,6 +92,11 @@ Execution artifact gate:
 - `POST /trajectory/execute` now supports optional query params:
 - `artifact_job_id=<job_id>`: require artifact validation for this job before execution starts.
 - `artifact_strict=true|false` (default `true`): strict mode enforces validation failure as HTTP error.
+
+Execution precheck dry-run:
+
+- `GET /trajectory/execute/precheck` returns readiness and guard diagnostics without starting motion.
+- Supports the same optional query params: `artifact_job_id` and `artifact_strict`.
 
 Bridge helper scripts:
 
