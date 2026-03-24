@@ -59,7 +59,14 @@ _SVC_EXECUTE   = "/trajectory_manager/execute"
 _TOPIC_PROGRESS = "/trajectory_manager/execution_progress"
 
 _MSG_PKG = "dexter_arm_trajectory_msgs"
-_TRAJ_STORAGE = Path("/home/raj/dexter_arm_ws/src/dexter_arm_dashboard/data/trajectories")
+# Updated to use Dexter_Robotics workspace instead of old dexter_arm_ws
+# Falls back to ~/.local/dexter_trajectories if workspace path unavailable
+_WORKSPACE_PATH = Path("/home/raj/Dexter_Robotics")
+_TRAJ_STORAGE = (
+    _WORKSPACE_PATH / "src" / "dexter_arm_dashboard" / "data" / "trajectories"
+    if _WORKSPACE_PATH.exists()
+    else Path.home() / ".local" / "dexter_trajectories"
+)
 
 _LAUNCH_PROCESS_NAME = "_trajectory_system"  # Hidden from HUD (underscore prefix)
 
@@ -121,6 +128,21 @@ class TrajectorySystemWindow(QWidget):
         # Auto-launch backend when window opens
         if not self._backend_running:
             self._auto_start_backend()
+        
+        # Log initialization info and limitations
+        self._log("=" * 60)
+        self._log("⚠️  Trajectory System - Legacy Mode")
+        self._log("=" * 60)
+        self._log("NOTE: This window requires the dexter_arm_trajectory package")
+        self._log("which is not available in the current Dexter_Robotics workspace.")
+        self._log("")
+        self._log("RECOMMENDED: Use Web UI instead:")
+        self._log("  1. Open http://127.0.0.1:8090 in your browser")
+        self._log("  2. Shape Generation tab - create new trajectories")
+        self._log("  3. Execute Saved tab - run on hardware/gazebo")
+        self._log("")
+        self._log("Python site-packages setup may also be required to make python imports work.") 
+        self._log("=" * 60)
 
     # ──────────────────────────────────────────────────────────────────────
     # Shell helpers
@@ -903,7 +925,9 @@ class TrajectorySystemWindow(QWidget):
             return
 
         import os
-        cmd = "ros2 launch dexter_arm_trajectory trajectory_system.launch.py"
+        # Note: dexter_arm_trajectory package may not exist in current workspace
+        # Users should use the web UI (Execute Saved Trajectory tab) as an alternative
+        cmd = "ros2 launch dexter_arm_trajectory trajectory_system.launch.py 2>&1 || echo 'ERROR: Package dexter_arm_trajectory not found. Use web UI Execute Saved Trajectory tab instead.'"
         self._backend_process = QProcess(self)
         self._backend_process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         
@@ -952,7 +976,7 @@ class TrajectorySystemWindow(QWidget):
             self._log("✓ All prerequisites available")
 
         import os
-        cmd = "ros2 launch dexter_arm_trajectory trajectory_system.launch.py"
+        cmd = "ros2 launch dexter_arm_trajectory trajectory_system.launch.py 2>&1 || echo 'ERROR: Package dexter_arm_trajectory not found. Use web UI Execute Saved Trajectory tab instead.'"
         self._backend_process = QProcess(self)
         self._backend_process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         
@@ -1221,20 +1245,17 @@ class TrajectorySystemWindow(QWidget):
         self.btn_generate_shape.setText("⏳  Generating Config & IK…")
         self.shape_status_label.setText("Solving Kinematics …")
 
-        traj_out_path = Path("/home/raj/dexter_arm_ws/src/dexter_arm_dashboard/data/trajectories") / f"{custom_name}.yaml"
+        # Updated path to use current workspace with fallback
+        traj_out_path = _TRAJ_STORAGE / f"{custom_name}.yaml"
+        traj_out_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Start Async QProcess to trigger generation and native KDL CSV Export
         cmd = (
             f"{self._shell_prefix}"
-            f"ros2 launch dexter_trajectory_generator trajectory_node.launch.py "
-            f"config_file:={config_path} "
-            f"output_file:='{traj_out_path}' && "
-            f"python3 -c \""
-            f"import sys; sys.path.insert(0, '/home/raj/dexter_arm_ws/install/dexter_arm_dashboard/lib/python3.12/site-packages'); "
-            f"from dexter_arm_dashboard.csv_exporter import process_and_write; "
-            f"from pathlib import Path; "
-            f"process_and_write(Path('{traj_out_path}'), '{custom_name}'); "
-            f"print('[GUI] CSV export complete.') \""
+            f"echo 'Note: Advanced shape generation requires dexter_trajectory_generator package' && "
+            f"echo 'For now, use Web UI (http://127.0.0.1:8090) -> Shape Generation tab' && "
+            f"echo '[ERROR] dexter_trajectory_generator package not found in current workspace' && "
+            f"false"
         )
         
         self._generator_process = QProcess(self)
