@@ -443,6 +443,17 @@ def _execution_precheck_payload(
         artifact = _artifact_validation_payload(normalized_job_id, strict=artifact_strict)
         artifact_ok = bool(artifact.get("ok"))
 
+        if artifact_ok:
+            backend = str(artifact.get("backend") or "")
+            if backend == "native":
+                native_job = _native_get_job(normalized_job_id)
+                execute_file = native_job.get("execute_file") if isinstance(native_job, dict) else None
+                execute_exists = bool(isinstance(execute_file, str) and execute_file and Path(execute_file).exists())
+                artifact["execute_file"] = execute_file
+                artifact["execute_file_exists"] = execute_exists
+                if not execute_exists:
+                    artifact_ok = False
+
     readiness = {
         "connected": bool(state.connected),
         "enabled": bool(state.enabled),
@@ -460,6 +471,9 @@ def _execution_precheck_payload(
         reasons.append("trajectory_already_running")
     if not artifact_ok:
         reasons.append("artifact_validation_failed")
+        if isinstance(artifact, dict) and artifact.get("backend") == "native":
+            if artifact.get("execute_file_exists") is False:
+                reasons.append("execute_artifact_missing")
 
     return {
         "ok": can_execute_now,
@@ -2616,16 +2630,29 @@ async def trajectory_job_status(job_id: str) -> dict:
 
 
 @app.get("/trajectory/download/{job_id}")
-async def trajectory_download(job_id: str) -> Response:
+async def trajectory_download(job_id: str, kind: str = "plan") -> Response:
     job = job_id.strip()
     if not job:
         raise HTTPException(status_code=400, detail="job_id is required")
 
+    artifact_kind = str(kind or "plan").strip().lower()
+    if artifact_kind not in {"plan", "execute"}:
+        raise HTTPException(status_code=400, detail="kind must be 'plan' or 'execute'")
+
     if _is_native_job_id(job):
         native_job = _native_get_job(job)
-        output_path = Path(native_job["output_file"]) if native_job else (NATIVE_TRAJECTORY_JOBS_DIR / f"{job}.yaml")
+        output_path: Path
+        if artifact_kind == "execute":
+            execute_file = native_job.get("execute_file") if isinstance(native_job, dict) else None
+            if isinstance(execute_file, str) and execute_file:
+                output_path = Path(execute_file)
+            else:
+                output_path = NATIVE_TRAJECTORY_JOBS_DIR / f"{job}.execute.yaml"
+        else:
+            output_path = Path(native_job["output_file"]) if native_job else (NATIVE_TRAJECTORY_JOBS_DIR / f"{job}.yaml")
+
         if not output_path.exists():
-            raise HTTPException(status_code=404, detail=f"Output not found for job_id: {job}")
+            raise HTTPException(status_code=404, detail=f"{artifact_kind} output not found for job_id: {job}")
         body = output_path.read_bytes()
         headers = {"Content-Disposition": f"attachment; filename={output_path.name}"}
         return Response(content=body, media_type="application/x-yaml", headers=headers)
