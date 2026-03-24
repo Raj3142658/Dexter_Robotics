@@ -20,6 +20,7 @@
         <button class="tab-btn" data-tab="hardware">Hardware Console</button>
         <button class="tab-btn" data-tab="ops">Health &amp; Ops</button>
         <button class="tab-btn" data-tab="shape">Shape Generation</button>
+        <button class="tab-btn" data-tab="execute">Execute Saved</button>
       </nav>
 
       <div class="sidebar-actions">
@@ -257,6 +258,62 @@
           title="Dexter Shape Generation"
           loading="lazy"
         ></iframe>
+      </section>
+
+      <section class="tab-panel" id="tab-execute">
+        <h2>Execute Saved Trajectory</h2>
+        <p class="hint">Execute previously generated trajectories on real hardware or simulation.</p>
+        
+        <div style="display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center;">
+          <div>
+            <label style="font-weight: 600;">Execution Target:</label>
+          </div>
+          <label style="display: flex; gap: 8px; align-items: center;">
+            <input type="radio" name="executionMode" value="simulated" checked onchange="updateExecutionTarget()">
+            <span>Simulated (Default)</span>
+          </label>
+          <label style="display: flex; gap: 8px; align-items: center;">
+            <input type="radio" name="executionMode" value="gazebo" onchange="updateExecutionTarget()">
+            <span>🌍 Gazebo Simulation</span>
+          </label>
+          <label style="display: flex; gap: 8px; align-items: center;">
+            <input type="radio" name="executionMode" value="hardware" onchange="updateExecutionTarget()">
+            <span>🖥️ Real Hardware</span>
+          </label>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+          <div>
+            <label for="executeSavedJobSelect">Saved Trajectories:</label>
+            <select id="executeSavedJobSelect" style="width: 100%; padding: 8px; background: #070d15; color: #0f0; border: 1px solid #2a5a4a; font-family: monospace;">
+              <option value="">Loading saved jobs...</option>
+            </select>
+          </div>
+          <div>
+            <label>&nbsp;</label>
+            <div style="display: flex; gap: 8px;">
+              <button id="executeRefreshJobsBtn" style="flex: 1; padding: 8px; background: #0a472a; color: #0f0; border: 1px solid #2a5a4a; cursor: pointer; font-family: monospace; font-weight: 600;">Refresh Jobs</button>
+              <button id="executeValidateBtn" style="flex: 1; padding: 8px; background: #1a3a2a; color: #0f0; border: 1px solid #2a5a4a; cursor: pointer; font-family: monospace;">Validate</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px;">
+          <button id="executePrecheckBtn" style="padding: 10px; background: #2a5a4a; color: #4af; border: 1px solid #2a8f8f; cursor: pointer; font-family: monospace; font-weight: 600;">Precheck</button>
+          <button id="executeStartBtn" style="padding: 10px; background: #3a3a1a; color: #ff0; border: 1px solid #8a8a2a; cursor: pointer; font-family: monospace; font-weight: 600;">Execute</button>
+          <button id="executeStopBtn" style="padding: 10px; background: #5a2a2a; color: #ff8844; border: 1px solid #8a4a2a; cursor: pointer; font-family: monospace;">Stop Execution</button>
+          <button id="executeDeleteBtn" style="padding: 10px; background: #5a1a1a; color: #ff4444; border: 1px solid #8a2a2a; cursor: pointer; font-family: monospace;">Delete Job</button>
+        </div>
+
+        <div style="border: 1px solid #2a5a4a; background: rgba(42,90,74,0.1); padding: 10px; font-family: monospace; font-size: 11px; color: #6a9a8a; margin-bottom: 16px;">
+          <strong>Status:</strong> <span id="executeStatus">Ready</span> | <strong>Target:</strong> <span id="executeTargetDisplay">Simulated</span>
+        </div>
+
+        <div style="border: 1px solid #1a3a2a; background: #020508; padding: 10px; font-family: 'Share Tech Mono', monospace; font-size: 10px; color: #4a8060; line-height: 1.6; height: 180px; overflow-y: auto;">
+          <div id="executeLog">
+            <span style="color: #3a7050;">[DEXTER] Ready. Select a trajectory and target, then execute.</span>
+          </div>
+        </div>
       </section>
 
     </main>

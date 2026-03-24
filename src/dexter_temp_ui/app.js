@@ -726,6 +726,228 @@ function connectEvents() {
   };
 }
 
+// ─── EXECUTE SAVED TRAJECTORY TAB ────────────────────────────────────────────
+let executeSelectedJobId = null;
+let executeTargetMode = "simulated";
+
+function updateExecutionTarget() {
+  const selected = document.querySelector('input[name="executionMode"]:checked');
+  if (selected) {
+    executeTargetMode = selected.value;
+    const targetDisplay = document.getElementById("executeTargetDisplay");
+    const modeText = {
+      simulated: "Simulated",
+      gazebo: "🌍 Gazebo Simulation",
+      hardware: "🖥️ Real Hardware"
+    };
+    if (targetDisplay) {
+      targetDisplay.textContent = modeText[executeTargetMode] || executeTargetMode;
+    }
+  }
+}
+
+function executeLog(msg) {
+  const el = document.getElementById("executeLog");
+  if (el) {
+    const ts = new Date().toLocaleTimeString();
+    el.textContent += `\n[${ts}] ${msg}`;
+    el.parentElement.scrollTop = el.parentElement.scrollHeight;
+  }
+}
+
+async function executeRefreshJobs() {
+  try {
+    const res = await fetch(`${API_BASE}/trajectory/jobs?limit=30`);
+    const data = await res.json();
+    const jobs = data.jobs || [];
+    
+    const sel = document.getElementById("executeSavedJobSelect");
+    if (!sel) return;
+    
+    sel.innerHTML = '';
+    if (jobs.length === 0) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "No saved jobs available";
+      sel.appendChild(opt);
+      executeLog("No saved jobs found.");
+      return;
+    }
+    
+    for (const j of jobs) {
+      const id = String(j.job_id || "").trim();
+      if (!id) continue;
+      const backend = String(j.backend || "unknown").toUpperCase();
+      const status = String(j.status || "?").toUpperCase();
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = `${id} | ${backend} | ${status}`;
+      sel.appendChild(opt);
+    }
+    
+    executeLog(`Loaded ${jobs.length} saved job(s).`);
+    selectedJobId = jobs[0]?.job_id || null;
+    
+  } catch (e) {
+    executeLog(`[ERROR] Refresh jobs failed: ${e.message}`);
+  }
+}
+
+async function executeValidateJob() {
+  const sel = document.getElementById("executeSavedJobSelect");
+  const jobId = sel?.value || executeSelectedJobId;
+  
+  if (!jobId) {
+    executeLog("[WARN] Select a job first.");
+    return;
+  }
+  
+  try {
+    const res = await fetch(`${API_BASE}/trajectory/artifacts/validate/${encodeURIComponent(jobId)}?strict=true`);
+    const data = await res.json();
+    
+    if (!res.ok || !data.ok) {
+      executeLog(`[ERROR] Validate failed: ${JSON.stringify(data)}`);
+      return;
+    }
+    
+    executeLog(`[OK] Job ${jobId} validated | backend=${data.backend}`);
+    executeSelectedJobId = jobId;
+  } catch (e) {
+    executeLog(`[ERROR] Validate request failed: ${e.message}`);
+  }
+}
+
+async function executePrecheckJob() {
+  const sel = document.getElementById("executeSavedJobSelect");
+  const jobId = sel?.value || executeSelectedJobId;
+  
+  if (!jobId) {
+    executeLog("[WARN] Select a job first.");
+    return;
+  }
+  
+  try {
+    const url = `${API_BASE}/trajectory/execute/precheck?artifact_job_id=${encodeURIComponent(jobId)}&artifact_strict=true`;
+    const res = await fetch(url);
+    const data = await res.json();
+    
+    if (data.ok) {
+      executeLog(`[OK] Precheck passed for ${jobId}. Ready to execute.`);
+      executeSelectedJobId = jobId;
+      return true;
+    } else {
+      const reasons = Array.isArray(data.reasons) ? data.reasons.join(", ") : "unknown";
+      executeLog(`[WARN] Precheck failed: ${reasons}`);
+      return false;
+    }
+  } catch (e) {
+    executeLog(`[ERROR] Precheck request failed: ${e.message}`);
+    return false;
+  }
+}
+
+async function executeStartTrajectory() {
+  const sel = document.getElementById("executeSavedJobSelect");
+  const jobId = sel?.value || executeSelectedJobId;
+  
+  if (!jobId) {
+    executeLog("[WARN] Select a job first.");
+    return;
+  }
+  
+  // Check precheck first
+  const ready = await executePrecheckJob();
+  if (!ready) return;
+  
+  try {
+    const url = `${API_BASE}/trajectory/execute?artifact_job_id=${encodeURIComponent(jobId)}&artifact_strict=true`;
+    const body = {
+      name: `execute-${jobId}-${executeTargetMode}`,
+      duration_sec: 1.5,
+    };
+    
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    
+    const data = await res.json();
+    if (!res.ok) {
+      const detail = data?.detail || JSON.stringify(data);
+      executeLog(`[ERROR] Execute failed: ${detail}`);
+      return;
+    }
+    
+    const context = data.trajectory?.context || "simulated";
+    const statusEl = document.getElementById("executeStatus");
+    if (statusEl) statusEl.textContent = `Executing on ${context}`;
+    
+    executeLog(`[EXECUTE] Started on ${context} | ${jobId}`);
+    executeSelectedJobId = jobId;
+    
+  } catch (e) {
+    executeLog(`[ERROR] Execute request failed: ${e.message}`);
+  }
+}
+
+async function executeStopTrajectory() {
+  try {
+    const res = await fetch(`${API_BASE}/trajectory/stop`, { method: "POST" });
+    if (!res.ok) {
+      const txt = await res.text();
+      executeLog(`[WARN] Stop returned ${res.status}: ${txt}`);
+      return;
+    }
+    executeLog("[STOP] Execution stopped.");
+    const statusEl = document.getElementById("executeStatus");
+    if (statusEl) statusEl.textContent = "Stopped";
+  } catch (e) {
+    executeLog(`[ERROR] Stop request failed: ${e.message}`);
+  }
+}
+
+async function executeDeleteJob() {
+  const sel = document.getElementById("executeSavedJobSelect");
+  const jobId = sel?.value || executeSelectedJobId;
+  
+  if (!jobId) {
+    executeLog("[WARN] Select a job first.");
+    return;
+  }
+  
+  if (!confirm(`Delete job ${jobId}?`)) return;
+  
+  try {
+    const res = await fetch(`${API_BASE}/trajectory/jobs/${encodeURIComponent(jobId)}`, {
+      method: "DELETE"
+    });
+    
+    const data = await res.json();
+    if (!res.ok) {
+      executeLog(`[ERROR] Delete failed: ${JSON.stringify(data)}`);
+      return;
+    }
+    
+    executeLog(`[DELETE] Removed ${jobId}.`);
+    if (executeSelectedJobId === jobId) executeSelectedJobId = null;
+    await executeRefreshJobs();
+    
+  } catch (e) {
+    executeLog(`[ERROR] Delete request failed: ${e.message}`);
+  }
+}
+
+function wireExecute() {
+  document.getElementById("executeRefreshJobsBtn")?.addEventListener("click", executeRefreshJobs);
+  document.getElementById("executeValidateBtn")?.addEventListener("click", executeValidateJob);
+  document.getElementById("executePrecheckBtn")?.addEventListener("click", executePrecheckJob);
+  document.getElementById("executeStartBtn")?.addEventListener("click", executeStartTrajectory);
+  document.getElementById("executeStopBtn")?.addEventListener("click", executeStopTrajectory);
+  document.getElementById("executeDeleteBtn")?.addEventListener("click", executeDeleteJob);
+}
+
 async function initialize() {
   wireTabs();
   wireModelViewer();
@@ -734,6 +956,7 @@ async function initialize() {
   wireFullStack();
   wireHardware();
   wireOps();
+  wireExecute();
   wireGlobalButtons();
   updateHardwareTransportFields();
   updateFirmwareMethodFields();
@@ -750,6 +973,7 @@ async function initialize() {
     getFirmwareFiles(),
     getFirmwareSerialPorts(),
     getFirmwareUploadStatus(),
+    executeRefreshJobs(),
   ]);
 
   connectEvents();
