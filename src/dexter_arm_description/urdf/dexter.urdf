@@ -65,7 +65,7 @@
     <parent link="base_link"/>
     <child link="l1l"/>
     <axis xyz="0 0 -1"/>
-    <limit effort="343.0" lower="0" upper="3.14" velocity="5"/>
+    <limit effort="343.0" lower="-1.57" upper="1.57" velocity="5"/>
   </joint>
   <!-- Link l2l -->
   <link name="l2l">
@@ -414,7 +414,7 @@
     <parent link="base_link"/>
     <child link="l1r"/>
     <axis xyz="0 0 1"/>
-    <limit effort="343.0" lower="0" upper="3.14" velocity="5"/>
+    <limit effort="343.0" lower="-1.57" upper="1.57" velocity="5"/>
   </joint>
   <!-- Link l2r -->
   <link name="l2r">

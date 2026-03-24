@@ -116,14 +116,14 @@
         <div class="controls">
           <label>Transport
             <select id="hardwareTransport">
-              <option value="serial" selected>Serial</option>
-              <option value="udp">UDP</option>
+              <option value="serial">Serial</option>
+              <option value="udp" selected>UDP</option>
             </select>
           </label>
-          <label id="serialField">Serial Device
+          <label id="serialField" style="display:none;">Serial Device
             <input id="hardwareSerialDevice" type="text" value="/dev/ttyUSB0" placeholder="/dev/ttyUSB0">
           </label>
-          <label id="udpField" style="display:none;">UDP Port
+          <label id="udpField">UDP Port
             <input id="hardwareUdpPort" type="number" min="1" max="65535" value="8888" placeholder="8888">
           </label>
         </div>
@@ -145,7 +145,7 @@
             <input id="hardwareAgentTimeout" type="number" min="10" max="120" value="30">
           </label>
           <label>Retries
-            <input id="hardwareMaxRetries" type="number" min="1" max="5" value="3">
+            <input id="hardwareMaxRetries" type="number" min="1" max="5" value="1">
           </label>
         </div>
 
@@ -200,6 +200,12 @@
         <pre id="systemMonitorStatus">Waiting for monitor status...</pre>
         <pre id="systemCleanupStatus">No cleanup run yet.</pre>
 
+        <h3>System Snapshot</h3>
+        <pre id="status">Loading...</pre>
+
+        <h3>Event Stream</h3>
+        <pre id="events">Waiting for events...</pre>
+
         <h3>Firmware Upload</h3>
         <div class="controls">
           <button id="firmwareRefreshFilesBtn" class="ghost">Refresh Files</button>
@@ -253,12 +259,6 @@
         ></iframe>
       </section>
 
-      <section class="status-bar">
-        <h3>System Snapshot</h3>
-        <pre id="status">Loading...</pre>
-        <h3>Event Stream</h3>
-        <pre id="events">Waiting for events...</pre>
-      </section>
     </main>
   </div>
 

@@ -3,6 +3,8 @@
 
 #include <memory>
 #include <string>
+#include <array>
+#include <cstdint>
 #include <vector>
 
 #include "hardware_interface/handle.hpp"
@@ -55,11 +57,21 @@ private:
   rclcpp::Node::SharedPtr node_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr command_pub_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr state_sub_;
+  rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr health_sub_;
   
   std_msgs::msg::Float64MultiArray latest_state_msg_;
   bool state_received_ = false;
+  bool link_health_received_ = false;
+  bool link_healthy_ = true;
+  uint32_t command_sequence_ = 0;
+  uint32_t last_timeout_events_ = 0;
+  std::array<double, 14> last_published_targets_{};
+  bool last_targets_initialized_ = false;
+  rclcpp::Time last_state_rx_time_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time last_health_rx_time_{0, 0, RCL_ROS_TIME};
   
   void state_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg);
+  void health_callback(const std_msgs::msg::Float64MultiArray::SharedPtr msg);
 };
 
 }  // namespace dexter_arm_hardware

@@ -13,3 +13,4 @@ class RobotState:
     trajectory_running: bool = False
     trajectory_paused: bool = False
     worker_task: Optional[asyncio.Task] = None
+    execution_context: str = "simulated"  # "simulated" | "hardware" | "gazebo" | "full_stack"

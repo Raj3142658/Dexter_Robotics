@@ -830,6 +830,7 @@ def snapshot() -> dict:
             "progress": round(state.trajectory_progress, 3),
             "running": state.trajectory_running,
             "paused": state.trajectory_paused,
+            "context": state.execution_context,
         },
         "rviz": {
             "running": rviz_status.running,
@@ -1295,19 +1296,28 @@ def _list_port_user_pids(port: int) -> list[int]:
 
 def _list_serial_user_pids(serial_port: str) -> list[int]:
     pids: list[int] = []
+    candidate_paths = {serial_port}
     try:
-        out = subprocess.run(
-            ["lsof", "-t", serial_port],
-            check=False,
-            capture_output=True,
-            text=True,
-        ).stdout
-        for line in out.splitlines():
-            line = line.strip()
-            if line.isdigit():
-                pids.append(int(line))
-    except FileNotFoundError:
+        resolved = os.path.realpath(serial_port)
+        if resolved:
+            candidate_paths.add(resolved)
+    except Exception:
         pass
+
+    for path in sorted(candidate_paths):
+        try:
+            out = subprocess.run(
+                ["lsof", "-t", path],
+                check=False,
+                capture_output=True,
+                text=True,
+            ).stdout
+            for line in out.splitlines():
+                line = line.strip()
+                if line.isdigit():
+                    pids.append(int(line))
+        except FileNotFoundError:
+            pass
     return sorted(set(pids))
 
 
@@ -1414,6 +1424,34 @@ def _find_espota() -> Optional[str]:
 
 
 def _discover_serial_ports() -> list[dict[str, Any]]:
+    def _is_supported_path(path: str) -> bool:
+        return path.startswith(
+            (
+                "/dev/serial/by-id/",
+                "/dev/ttyUSB",
+                "/dev/ttyACM",
+                "/dev/ttyAMA",
+                "/dev/ttyTHS",
+            )
+        )
+
+    def _port_sort_key(entry: dict[str, Any]) -> tuple[int, int, str]:
+        path = str(entry.get("path", ""))
+        busy_rank = 1 if bool(entry.get("busy", False)) else 0
+        if path.startswith("/dev/serial/by-id/"):
+            kind_rank = 0
+        elif path.startswith("/dev/ttyUSB"):
+            kind_rank = 1
+        elif path.startswith("/dev/ttyACM"):
+            kind_rank = 2
+        elif path.startswith("/dev/ttyAMA"):
+            kind_rank = 3
+        elif path.startswith("/dev/ttyTHS"):
+            kind_rank = 4
+        else:
+            kind_rank = 9
+        return (busy_rank, kind_rank, path)
+
     seen: set[str] = set()
     entries: list[dict[str, Any]] = []
 
@@ -1423,7 +1461,7 @@ def _discover_serial_ports() -> list[dict[str, Any]]:
 
         for p in serial.tools.list_ports.comports():
             device = str(getattr(p, "device", "") or "").strip()
-            if not device or device in seen:
+            if not device or device in seen or not _is_supported_path(device):
                 continue
             seen.add(device)
             pids = _list_serial_user_pids(device)
@@ -1464,7 +1502,7 @@ def _discover_serial_ports() -> list[dict[str, Any]]:
                 }
             )
 
-    entries.sort(key=lambda e: (e.get("busy", False), str(e.get("path", ""))))
+    entries.sort(key=_port_sort_key)
     return entries
 
 
@@ -1526,11 +1564,17 @@ async def _run_firmware_upload(request: FirmwareUploadStartRequest) -> None:
             )
         else:
             ota_flags = f"-a {shlex.quote(request.ota_password)}" if request.ota_password else ""
-            bin_candidate = sketch_dir / "build" / "esp32.esp32.esp32" / f"{sketch_name}.ino.bin"
+            build_dir = sketch_dir / "build"
             command = (
-                f"arduino-cli compile --fqbn {request.fqbn} {shlex.quote(str(sketch_dir))} && "
+                f"build_dir={shlex.quote(str(build_dir))} && "
+                f"arduino-cli compile --fqbn {request.fqbn} --output-dir \"$build_dir\" {shlex.quote(str(sketch_dir))} && "
+                "bin_candidate=$(find \"$build_dir\" -maxdepth 3 -type f -name '*.bin' "
+                "| grep -Ev '(bootloader|partitions)\\.bin$' | head -n 1) && "
+                "if [ -z \"$bin_candidate\" ]; then echo 'OTA binary not found under build output directory'; "
+                "find \"$build_dir\" -maxdepth 3 -type f | sort; exit 2; fi && "
+                "echo \"Using OTA binary: $bin_candidate\" && "
                 f"python3 {shlex.quote(espota_path)} -i {shlex.quote(request.ota_ip)} "
-                f"-f {shlex.quote(str(bin_candidate))} {ota_flags}"
+                f"-f \"$bin_candidate\" {ota_flags}"
             )
     elif selected_path.suffix.lower() == ".bin":
         if method == "serial":
@@ -1584,10 +1628,33 @@ async def _run_firmware_upload(request: FirmwareUploadStartRequest) -> None:
             temp_dir_obj.cleanup()
 
 
-async def _run_trajectory(name: str, duration_sec: float) -> None:
+async def _run_trajectory(name: str, duration_sec: float, context: str = "simulated") -> None:
+    """Execute trajectory with execution context differentiation.
+    
+    Args:
+        name: Trajectory name
+        duration_sec: Estimated execution duration
+        context: "simulated" | "hardware" | "gazebo" | "full_stack"
+    """
     steps = 20
     sleep_s = duration_sec / steps
+    context_label = {
+        "hardware": "[Hardware]",
+        "gazebo": "[Gazebo Sim]",
+        "full_stack": "[Full-Stack Sim]",
+        "simulated": "[Simulated]",
+    }.get(context, "[Unknown]")
+    
     try:
+        # Pre-execution context message
+        await broadcast(
+            EventMessage(
+                type="trajectory_context",
+                message=f"Executing on {context_label} context: {name}",
+                payload=snapshot(),
+            )
+        )
+        
         for i in range(1, steps + 1):
             while state.trajectory_paused:
                 await asyncio.sleep(0.2)
@@ -1597,17 +1664,18 @@ async def _run_trajectory(name: str, duration_sec: float) -> None:
             await broadcast(
                 EventMessage(
                     type="trajectory_progress",
-                    message=f"Trajectory {name} at {int(state.trajectory_progress * 100)}%",
+                    message=f"{context_label} {name} at {int(state.trajectory_progress * 100)}%",
                     payload=snapshot(),
                 )
             )
 
         state.trajectory_running = False
         state.trajectory_name = None
+        state.execution_context = "simulated"
         await broadcast(
             EventMessage(
                 type="trajectory_completed",
-                message=f"Trajectory {name} completed",
+                message=f"{context_label} Trajectory {name} completed successfully",
                 payload=snapshot(),
             )
         )
@@ -1616,10 +1684,11 @@ async def _run_trajectory(name: str, duration_sec: float) -> None:
         state.trajectory_paused = False
         state.trajectory_name = None
         state.trajectory_progress = 0.0
+        state.execution_context = "simulated"
         await broadcast(
             EventMessage(
                 type="trajectory_stopped",
-                message="Trajectory stopped",
+                message=f"{context_label} Trajectory stopped by user",
                 payload=snapshot(),
             )
         )
@@ -1716,19 +1785,34 @@ async def execute_trajectory(
     if precheck["readiness"]["trajectory_running"]:
         raise HTTPException(status_code=409, detail="Another trajectory is already running")
 
+    # Determine execution context based on active sessions
+    execution_context = "simulated"
+    full_stack_status = full_stack_service.status()
+    hardware_status = hardware_service.status()
+    gazebo_status = gazebo_service.status()
+    
+    if full_stack_status.running:
+        execution_context = "full_stack"
+    elif hardware_status.get("launch_running"):
+        execution_context = "hardware"
+    elif gazebo_status.running:
+        execution_context = "gazebo"
+    
     state.trajectory_running = True
     state.trajectory_paused = False
+    state.execution_context = execution_context
+    
     if precheck["artifact_job_id"]:
         state.trajectory_name = f"{req.name} ({precheck['artifact_job_id']})"
     else:
         state.trajectory_name = req.name
     state.trajectory_progress = 0.0
-    state.worker_task = asyncio.create_task(_run_trajectory(req.name, req.duration_sec))
+    state.worker_task = asyncio.create_task(_run_trajectory(req.name, req.duration_sec, context=execution_context))
 
     await broadcast(
         EventMessage(
             type="trajectory_started",
-            message=f"Trajectory {req.name} started",
+            message=f"Trajectory {req.name} started on {execution_context}",
             payload=snapshot(),
         )
     )
@@ -2611,7 +2695,8 @@ async def firmware_serial_ports() -> dict:
     ports = _discover_serial_ports()
     suggested = None
     if ports:
-        suggested = str(ports[0].get("path") or "")
+        preferred = next((p for p in ports if not bool(p.get("busy", False))), ports[0])
+        suggested = str(preferred.get("path") or "")
     return {
         "ports": ports,
         "count": len(ports),

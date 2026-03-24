@@ -413,7 +413,7 @@ class HardwareFullSystemWindow(QWidget):
         text = (
             "1. Make sure ESP32 is powered and firmware is uploaded.\n"
             "2. micro-ROS agent will start in background.\n"
-            "3. You may need to press EN on ESP32 for connection.\n"
+            "3. If connection is delayed, check ESP32 power and firmware flash first, then press EN if needed.\n"
             "4. Hardware bringup will start after session is ready.\n\n"
             "Continue?"
         )
@@ -617,7 +617,7 @@ class HardwareFullSystemWindow(QWidget):
         if self.wait_elapsed_seconds % 5 == 0:
             self._log(f"[wait] Still waiting... ({self.wait_elapsed_seconds}s)")
             if self.wait_elapsed_seconds == 10:
-                self._log("Connection tip: press EN (reset) on ESP32, wait 2-3 seconds.")
+                self._log("Connection tip: confirm ESP32 is powered and firmware is flashed; if yes, press EN (reset) and wait 2-3 seconds.")
 
         if self.wait_elapsed_seconds >= 30:
             self.waiting_for_session = False
@@ -626,7 +626,7 @@ class HardwareFullSystemWindow(QWidget):
             self._log("[ERR] Timeout waiting for session.")
             for line in self._recent_agent_lines[-10:]:
                 self._log(f"[agent-tail] {line}")
-            self._log("Try pressing EN on ESP32 and launch again.")
+            self._log("Check ESP32 power and firmware flash; then press EN and launch again.")
             self._stop_agent()
 
     def _start_hardware_bringup(self) -> None:

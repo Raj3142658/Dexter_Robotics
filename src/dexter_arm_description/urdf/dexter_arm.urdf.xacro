@@ -68,7 +68,7 @@
         <parent link="base_link" />
         <child link="l1l" />
         <axis xyz="0 0 -1" />
-        <limit lower="0" upper="3.14" effort="343.0" velocity="5" />
+        <limit lower="-1.57" upper="1.57" effort="343.0" velocity="5" />
     </joint>
 
     <!-- Link l2l -->
@@ -219,12 +219,6 @@
                 <color rgba="0.5 0.5 0.5 1" />
             </material>
         </visual>
-        <collision>
-            <origin xyz="0 0 0" rpy="0 0 0" />
-            <geometry>
-                <mesh filename="package://dexter_arm_description/meshes/base.stl" scale="0.001 0.001 0.001"/>
-            </geometry>
-        </collision>
     </link>
 
     <joint name="j6l" type="revolute">
@@ -251,12 +245,6 @@
                 <color rgba="0.5 0.5 0.5 1" />
             </material>
         </visual>
-        <collision>
-            <origin xyz="0 0 0" rpy="0 0 0" />
-            <geometry>
-                <mesh filename="package://dexter_arm_description/meshes/base1.stl" scale="0.001 0.001 0.001"/>
-            </geometry>
-        </collision>
     </link>
 
     <joint name="j6l_base1_fixed" type="fixed">
@@ -281,12 +269,6 @@
                 <color rgba="0.5 0.5 0.5 1" />
             </material>
         </visual>
-        <collision>
-            <origin xyz="0 0 0" rpy="0 0 0" />
-            <geometry>
-                <mesh filename="package://dexter_arm_description/meshes/rail.stl" scale="0.001 0.001 0.001"/>
-            </geometry>
-        </collision>
     </link>
 
     <joint name="j6l_rail_fixed" type="fixed">
@@ -308,7 +290,7 @@
         <parent link="l6l_rail" />
         <child link="l6l_finger_slider" />
         <axis xyz="0 0 1" />
-        <limit lower="-0.022" upper="0.0" effort="1.0" velocity="0.1" />
+        <limit lower="-0.04" upper="0.0" effort="1.0" velocity="0.1" />
     </joint>
 
     <!-- LEFT GRIPPER - Finger (actual mesh) -->
@@ -327,12 +309,6 @@
                 <color rgba="0.5 0.5 0.5 1" />
             </material>
         </visual>
-        <collision>
-            <origin xyz="0 0 0" rpy="0 0 0" />
-            <geometry>
-                <mesh filename="package://dexter_arm_description/meshes/finger.stl" scale="0.001 0.001 0.001"/>
-            </geometry>
-        </collision>
     </link>
 
     <joint name="j6l_finger_fixed" type="fixed">
@@ -354,7 +330,7 @@
         <parent link="l6l_rail" />
         <child link="l6l_finger2_slider" />
         <axis xyz="0 0 1" />
-        <limit lower="-0.022" upper="0.0" effort="1.0" velocity="0.1" />
+        <limit lower="-0.04" upper="0.0" effort="1.0" velocity="0.1" />
     </joint>
 
     <!-- LEFT GRIPPER - Second Finger (actual mesh) -->
@@ -373,12 +349,6 @@
                 <color rgba="0.5 0.5 0.5 1" />
             </material>
         </visual>
-        <collision>
-            <origin xyz="0 0 0" rpy="0 0 0" />
-            <geometry>
-                <mesh filename="package://dexter_arm_description/meshes/finger.stl" scale="0.001 0.001 0.001"/>
-            </geometry>
-        </collision>
     </link>
 
     <joint name="j6l_finger2_fixed" type="fixed">
@@ -403,12 +373,6 @@
                 <color rgba="1.0 0.5 0.0 1.0" />
             </material>
         </visual>
-        <collision>
-            <origin xyz="0 0 0" rpy="0 0 0" />
-            <geometry>
-                <sphere radius="0.008" />
-            </geometry>
-        </collision>
     </link>
 
     <joint name="tool0_left_fixed_joint" type="fixed">
@@ -448,7 +412,7 @@
         <parent link="base_link" />
         <child link="l1r" />
         <axis xyz="0 0 1" />
-        <limit lower="0" upper="3.14" effort="343.0" velocity="5" />
+        <limit lower="-1.57" upper="1.57" effort="343.0" velocity="5" />
     </joint>
 
     <!-- Link l2r -->
@@ -785,12 +749,6 @@
                 <color rgba="0.0 0.8 1.0 1.0" />
             </material>
         </visual>
-        <collision>
-            <origin xyz="0 0 0" rpy="0 0 0" />
-            <geometry>
-                <sphere radius="0.008" />
-            </geometry>
-        </collision>
     </link>
 
     <joint name="tool0_right_fixed_joint" type="fixed">

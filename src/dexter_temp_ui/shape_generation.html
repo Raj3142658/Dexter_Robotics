@@ -528,6 +528,54 @@
     flex-shrink: 0;
   }
 
+  .job-tools {
+    border: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.01);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .job-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .job-select {
+    flex: 1;
+    min-width: 220px;
+    background: #070d15;
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 7px 8px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+  }
+  .btn-mini {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 7px 10px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .btn-mini:hover {
+    border-color: var(--accent-l);
+    color: var(--accent-l);
+  }
+  .btn-mini.warn:hover {
+    border-color: var(--warn);
+    color: var(--warn);
+  }
+  .btn-mini.danger:hover {
+    border-color: #ff4444;
+    color: #ff4444;
+  }
+
   /* Floating trigger button */
   .gen-trigger {
     position: fixed;
@@ -809,6 +857,30 @@
     <!-- Live terminal -->
     <div class="terminal" id="terminal">
       <span class="term-line bridge">[DEXTER] Ready. Configure workspace then click Generate.</span>
+    </div>
+
+    <!-- Execution context status -->
+    <div id="executionStatus" style="padding: 6px 8px; border: 1px solid #2a5a4a; background: rgba(42,90,74,0.15); font-family: 'Share Tech Mono', monospace; font-size: 10px; color: #6a9a8a; display: none;">
+      <strong>Execution Context:</strong> <span id="executionContextLabel">simulated</span>
+    </div>
+
+    <div class="job-tools">
+      <div class="job-row">
+        <select id="recentJobs" class="job-select" onchange="onJobSelectionChanged()">
+          <option value="">No jobs loaded yet</option>
+        </select>
+        <button class="btn-mini" onclick="refreshJobs()">Refresh Jobs</button>
+      </div>
+      <div class="job-row">
+        <button class="btn-mini" onclick="validateSelectedJob()">Validate Artifact</button>
+        <button class="btn-mini" onclick="precheckSelectedJob()">Run Precheck</button>
+        <button class="btn-mini warn" onclick="executeSelectedJob()">Execute</button>
+        <button class="btn-mini danger" onclick="stopExecution()">Stop Exec</button>
+      </div>
+      <div class="job-row">
+        <button class="btn-mini danger" onclick="deleteSelectedJob()">Delete Job</button>
+        <button class="btn-mini" onclick="cleanupJobs()">Cleanup Jobs</button>
+      </div>
     </div>
 
     <button class="btn-generate" id="btnGenerate" onclick="generate()">
@@ -1303,6 +1375,7 @@ let bridgeStartInFlight = false;
 let selectedGenerationBackend = 'bridge';
 const SAFETY_API_BASE = 'http://127.0.0.1:8084';
 const TRAJECTORY_API_BASE = 'http://127.0.0.1:8084';
+setTimeout(() => { refreshJobs(); }, 250);
 
 function updateBridgeButtonState(middlewareOnline, bridgeOnline) {
   const btn = document.getElementById('btnBridgeStart');
@@ -1869,6 +1942,7 @@ function onJobDone(job) {
   btn.className   = 'btn-generate done';
   btn.disabled    = false;
   activeJobId     = job.job_id;
+  refreshJobs();
 }
 
 function resetBtn(state = '') {
@@ -1879,8 +1953,247 @@ function resetBtn(state = '') {
 }
 
 async function downloadResult() {
-  if (!activeJobId) return;
+  const jobId = activeJobId || getSelectedJobId();
+  if (!jobId) {
+    termLog('[WARN] No selected job to download.', 'warn');
+    return;
+  }
+  activeJobId = jobId;
   window.location.href = `${TRAJECTORY_API_BASE}/trajectory/download/${activeJobId}`;
+}
+
+function getSelectedJobId() {
+  const sel = document.getElementById('recentJobs');
+  if (!sel) return '';
+  return (sel.value || '').trim();
+}
+
+function setSelectedJobId(jobId) {
+  const sel = document.getElementById('recentJobs');
+  if (!sel) return;
+  if (!jobId) {
+    sel.value = '';
+    return;
+  }
+  for (const opt of sel.options) {
+    if (opt.value === jobId) {
+      sel.value = jobId;
+      break;
+    }
+  }
+}
+
+function onJobSelectionChanged() {
+  const jobId = getSelectedJobId();
+  if (!jobId) return;
+  activeJobId = jobId;
+  termLog(`[JOB] Selected: ${jobId}`, 'info');
+}
+
+async function refreshJobs() {
+  try {
+    const prev = activeJobId || getSelectedJobId();
+    const res = await fetch(`${TRAJECTORY_API_BASE}/trajectory/jobs?limit=30`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) {
+      const txt = await res.text();
+      termLog(`[WARN] Could not refresh jobs: ${res.status} ${txt}`, 'warn');
+      return;
+    }
+
+    const payload = await res.json();
+    const jobs = Array.isArray(payload.jobs) ? payload.jobs : [];
+    const sel = document.getElementById('recentJobs');
+    if (!sel) return;
+
+    sel.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = jobs.length ? 'Select a saved job...' : 'No jobs available';
+    sel.appendChild(placeholder);
+
+    for (const j of jobs) {
+      const id = String(j.job_id || '').trim();
+      if (!id) continue;
+      const backend = String(j.backend || 'unknown').toUpperCase();
+      const status = String(j.status || '?').toUpperCase();
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = `${id} | ${backend} | ${status}`;
+      sel.appendChild(opt);
+    }
+
+    if (jobs.length) {
+      if (prev) {
+        setSelectedJobId(prev);
+      }
+      if (!getSelectedJobId()) {
+        const latest = String(jobs[0].job_id || '').trim();
+        if (latest) {
+          setSelectedJobId(latest);
+          activeJobId = latest;
+        }
+      }
+    }
+  } catch (e) {
+    termLog(`[WARN] Job refresh failed: ${e.message}`, 'warn');
+  }
+}
+
+async function validateSelectedJob() {
+  const jobId = getSelectedJobId() || activeJobId;
+  if (!jobId) {
+    termLog('[WARN] Select a job first.', 'warn');
+    return;
+  }
+  try {
+    const res = await fetch(`${TRAJECTORY_API_BASE}/trajectory/artifacts/validate/${encodeURIComponent(jobId)}?strict=true`);
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      termLog(`[ERROR] Validate failed for ${jobId}: ${JSON.stringify(data)}`, 'error');
+      return;
+    }
+    termLog(`[VALIDATE] ${jobId} OK | backend=${data.backend} | strict=${data.strict}`, 'done');
+  } catch (e) {
+    termLog(`[ERROR] Validate request failed: ${e.message}`, 'error');
+  }
+}
+
+async function precheckSelectedJob() {
+  const jobId = getSelectedJobId() || activeJobId;
+  if (!jobId) {
+    termLog('[WARN] Select a job first.', 'warn');
+    return false;
+  }
+  try {
+    const url = `${TRAJECTORY_API_BASE}/trajectory/execute/precheck?artifact_job_id=${encodeURIComponent(jobId)}&artifact_strict=true`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (!res.ok) {
+      termLog(`[ERROR] Precheck failed: ${JSON.stringify(data)}`, 'error');
+      return false;
+    }
+    if (data.ok) {
+      termLog(`[PRECHECK] ${jobId} ready for execute.`, 'done');
+      return true;
+    } else {
+      const reasons = Array.isArray(data.reasons) ? data.reasons.join(', ') : 'unknown';
+      termLog(`[PRECHECK] not ready: ${reasons}`, 'warn');
+      return false;
+    }
+  } catch (e) {
+    termLog(`[ERROR] Precheck request failed: ${e.message}`, 'error');
+    return false;
+  }
+}
+
+async function executeSelectedJob() {
+  const jobId = getSelectedJobId() || activeJobId;
+  if (!jobId) {
+    termLog('[WARN] Select a job first.', 'warn');
+    return;
+  }
+
+  const ready = await precheckSelectedJob();
+  if (!ready) {
+    return;
+  }
+
+  try {
+    const url = `${TRAJECTORY_API_BASE}/trajectory/execute?artifact_job_id=${encodeURIComponent(jobId)}&artifact_strict=true`;
+    const body = {
+      name: `shape-job-${jobId}`,
+      duration_sec: 2.0,
+    };
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const detail = data && data.detail ? data.detail : JSON.stringify(data);
+      termLog(`[ERROR] Execute failed: ${detail}`, 'error');
+      return;
+    }
+    
+    // Display execution context
+    const context = data.trajectory?.context || data.execution_context || 'simulated';
+    updateExecutionContext(context);
+    
+    termLog(`[EXECUTE] Started ${jobId} on ${context}. Guard OK=${data.execution_guard?.ok === true}`, 'done');
+  } catch (e) {
+    termLog(`[ERROR] Execute request failed: ${e.message}`, 'error');
+  }
+}
+
+function updateExecutionContext(context) {
+  const statusDiv = document.getElementById('executionStatus');
+  const contextLabel = document.getElementById('executionContextLabel');
+  
+  if (!statusDiv || !contextLabel) return;
+  
+  const contextText = {
+    'hardware': '🖥️ HARDWARE',
+    'gazebo': '🌍 GAZEBO SIM',
+    'full_stack': '📦 FULL-STACK SIM',
+    'simulated': '▶️ SIMULATED'
+  };
+  
+  contextLabel.textContent = contextText[context] || context;
+  statusDiv.style.display = 'block';
+  statusDiv.style.borderColor = context === 'hardware' ? '#ff6b00' : context === 'gazebo' ? '#00b8ff' : '#2a5a4a';
+  statusDiv.style.color = context === 'hardware' ? '#ffaa44' : context === 'gazebo' ? '#44d9ff' : '#6a9a8a';
+}
+
+async function stopExecution() {
+  try {
+    const res = await fetch(`${TRAJECTORY_API_BASE}/trajectory/stop`, { method: 'POST' });
+    if (!res.ok) {
+      const txt = await res.text();
+      termLog(`[WARN] Stop execution returned ${res.status}: ${txt}`, 'warn');
+      return;
+    }
+    termLog('[EXECUTE] Stop requested.', 'warn');
+  } catch (e) {
+    termLog(`[ERROR] Stop request failed: ${e.message}`, 'error');
+  }
+}
+
+async function deleteSelectedJob() {
+  const jobId = getSelectedJobId() || activeJobId;
+  if (!jobId) {
+    termLog('[WARN] Select a job first.', 'warn');
+    return;
+  }
+  try {
+    const res = await fetch(`${TRAJECTORY_API_BASE}/trajectory/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) {
+      termLog(`[ERROR] Delete failed: ${JSON.stringify(data)}`, 'error');
+      return;
+    }
+    termLog(`[JOB] Deleted ${jobId}.`, 'done');
+    if (activeJobId === jobId) activeJobId = null;
+    await refreshJobs();
+  } catch (e) {
+    termLog(`[ERROR] Delete request failed: ${e.message}`, 'error');
+  }
+}
+
+async function cleanupJobs() {
+  try {
+    const res = await fetch(`${TRAJECTORY_API_BASE}/trajectory/jobs/cleanup?keep_latest=20`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) {
+      termLog(`[ERROR] Cleanup failed: ${JSON.stringify(data)}`, 'error');
+      return;
+    }
+    const nativeRemoved = data.native?.removed_count ?? 0;
+    termLog(`[JOB] Cleanup complete. Native removed: ${nativeRemoved}`, 'info');
+    await refreshJobs();
+  } catch (e) {
+    termLog(`[ERROR] Cleanup request failed: ${e.message}`, 'error');
+  }
 }
 
 // ─── KEEP GEN PANEL SYNCED when workspace changes ────────────────────────────

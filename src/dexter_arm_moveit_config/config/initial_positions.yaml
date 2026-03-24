@@ -1,4 +1,6 @@
-# Default initial positions for dexter_arm's ros2_control fake system
+# Default initial positions for dexter_arm
+# Zero-reference mode: firmware INIT_PWM is treated as 0 rad for revolute joints.
+# Keep these at 0.0 so RViz/MoveIt reference frame matches firmware boot reference.
 
 initial_positions:
   # Left Arm
@@ -8,8 +10,8 @@ initial_positions:
   j4l: 0.0
   j5l: 0.0
   j6l: 0.0
-  j7l1: 0.0
-  j7l2: 0.0
+  j7l1: 0.0  # Gripper finger 1 (prismatic - starts open)
+  j7l2: 0.0  # Gripper finger 2 (prismatic - starts open)
 
   # Right Arm
   j1r: 0.0
@@ -18,5 +20,5 @@ initial_positions:
   j4r: 0.0
   j5r: 0.0
   j6r: 0.0
-  j7r1: 0.0
-  j7r2: 0.0
+  j7r1: 0.0  # Gripper finger 1 (prismatic - starts open)
+  j7r2: 0.0  # Gripper finger 2 (prismatic - starts open)

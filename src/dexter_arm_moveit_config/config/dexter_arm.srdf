@@ -127,8 +127,8 @@
         <joint name="j7l2" value="0"/>
     </group_state>
     <group_state name="left_gripper_close" group="left_gripper">
-        <joint name="j7l1" value="-0.022"/>
-        <joint name="j7l2" value="-0.022"/>
+        <joint name="j7l1" value="-0.04"/>
+        <joint name="j7l2" value="-0.04"/>
     </group_state>
     <group_state name="right_gripper_open" group="right_gripper">
         <joint name="j7r1" value="0"/>
@@ -147,8 +147,8 @@
         <joint name="j7r2" value="0"/>
     </group_state>
     <group_state name="both_grippers_close" group="both_grippers">
-        <joint name="j7l1" value="-0.022"/>
-        <joint name="j7l2" value="-0.022"/>
+        <joint name="j7l1" value="-0.04"/>
+        <joint name="j7l2" value="-0.04"/>
         <joint name="j7r1" value="-0.022"/>
         <joint name="j7r2" value="0.022"/>
     </group_state>

@@ -27,6 +27,7 @@ const hardwareSessionLogEl = document.getElementById("hardwareSessionLog");
 
 let hardwarePollTimer = null;
 let firmwarePollTimer = null;
+let liveStatusTimer = null;
 
 function nowTime() {
   return new Date().toLocaleTimeString();
@@ -91,15 +92,34 @@ function renderHardwareSessionUi(data) {
   if (state === "bootstrapping" && phase === "agent_connecting") {
     hintMessage = `Establishing micro-ROS session... attempt ${attempt}/${maxAttempts || "?"} (${elapsed}s elapsed)`;
   }
-  if (data.suggest_reset) {
-    hintMessage += "\nNo session after 10s. Press ESP32 RESET once, then wait for session marker.";
-  }
   if (data.last_error) {
     hintMessage += `\nLast error: ${data.last_error}`;
   }
 
   hardwareSessionHintEl.textContent = hintMessage;
   hardwareSessionLogEl.textContent = logs.length ? logs.join("\n") : "No session logs yet.";
+}
+
+function applySnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") {
+    return;
+  }
+
+  if (snapshot.rviz) rvizStatusEl.textContent = JSON.stringify(snapshot.rviz, null, 2);
+  if (snapshot.moveit) moveitStatusEl.textContent = JSON.stringify(snapshot.moveit, null, 2);
+  if (snapshot.gazebo) gazeboStatusEl.textContent = JSON.stringify(snapshot.gazebo, null, 2);
+  if (snapshot.full_stack) fullStackStatusEl.textContent = JSON.stringify(snapshot.full_stack, null, 2);
+  if (snapshot.hardware) {
+    hardwareStatusEl.textContent = JSON.stringify(snapshot.hardware, null, 2);
+    renderHardwareSessionUi(snapshot.hardware);
+
+    const st = String(snapshot.hardware.state || "");
+    if (st === "bootstrapping") {
+      startHardwarePolling();
+    } else if (st === "running" || st === "failed" || st === "idle") {
+      stopHardwarePolling();
+    }
+  }
 }
 
 function startHardwarePolling() {
@@ -116,6 +136,17 @@ function stopHardwarePolling() {
     clearInterval(hardwarePollTimer);
     hardwarePollTimer = null;
   }
+}
+
+function startLiveStatusRefresh() {
+  if (liveStatusTimer) {
+    return;
+  }
+  liveStatusTimer = setInterval(() => {
+    getStatus();
+    getHardwareStatus();
+    getFirmwareUploadStatus();
+  }, 1800);
 }
 
 function parsePortList(raw) {
@@ -154,6 +185,7 @@ async function getStatus() {
   const res = await fetch(`${API_BASE}/status`);
   const data = await res.json();
   statusEl.textContent = JSON.stringify(data, null, 2);
+  applySnapshot(data);
 }
 
 async function getHealthStatus() {
@@ -682,6 +714,7 @@ function connectEvents() {
       logGlobal(`${msg.type}: ${msg.message}`);
       if (msg.payload) {
         statusEl.textContent = JSON.stringify(msg.payload, null, 2);
+        applySnapshot(msg.payload);
       }
     } catch {
       logGlobal(`WS raw: ${evt.data}`);
@@ -720,6 +753,7 @@ async function initialize() {
   ]);
 
   connectEvents();
+  startLiveStatusRefresh();
 }
 
 initialize().catch((e) => {

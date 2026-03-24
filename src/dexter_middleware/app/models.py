@@ -35,12 +35,12 @@ class FullStackStartRequest(BaseModel):
 
 
 class HardwareBootstrapStartRequest(BaseModel):
-    transport: str = Field(default="serial", pattern="^(serial|udp)$")
-    device_port: str = Field(default="/dev/ttyUSB0", description="Serial device or UDP port")
+    transport: str = Field(default="udp", pattern="^(serial|udp)$")
+    device_port: str = Field(default="8888", description="Serial device or UDP port")
     use_rviz: bool = True
     load_moveit: bool = True
     agent_timeout_sec: int = Field(default=30, ge=10, le=120)
-    agent_max_retries: int = Field(default=3, ge=1, le=5)
+    agent_max_retries: int = Field(default=1, ge=1, le=5)
 
 
 class CleanupRequest(BaseModel):

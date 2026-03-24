@@ -11,11 +11,18 @@ from launch_ros.parameter_descriptions import ParameterValue
 def generate_launch_description():
 
     gui = LaunchConfiguration("gui")
+    calibration_mode = LaunchConfiguration("calibration_mode")
 
     declare_gui_arg = DeclareLaunchArgument(
         "gui",
         default_value="true",
         description="Use joint_state_publisher_gui"
+    )
+
+    declare_calibration_mode_arg = DeclareLaunchArgument(
+        "calibration_mode",
+        default_value="true",
+        description="Enable temporary left gripper calibration joints for slider tuning"
     )
 
     robot_description_content = ParameterValue(
@@ -26,7 +33,10 @@ def generate_launch_description():
                 FindPackageShare("dexter_arm_description"),
                 "urdf",
                 "dexter_arm.urdf.xacro"
-            ])
+            ]),
+            " ",
+            "enable_calibration_joints:=",
+            calibration_mode,
         ]),
         value_type=str
     )
@@ -64,6 +74,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         declare_gui_arg,
+        declare_calibration_mode_arg,
         robot_state_publisher,
         joint_state_publisher,
         joint_state_publisher_gui,

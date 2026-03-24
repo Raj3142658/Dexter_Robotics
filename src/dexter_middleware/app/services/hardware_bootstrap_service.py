@@ -9,6 +9,8 @@ Manages two-stage bootstrap for real hardware control:
 import asyncio
 import os
 import re
+import signal
+import socket
 import subprocess
 import tempfile
 import time
@@ -46,6 +48,48 @@ class HardwareBootstrapService:
         ts = time.strftime("%H:%M:%S")
         self._logs.append(f"[{ts}] {message}")
         self._logs = self._logs[-120:]
+
+    def _firmware_uses_wifi_transport(self) -> bool:
+        """Best-effort hint: detect if project firmware is configured for WiFi micro-ROS transport."""
+        try:
+            repo_root = Path(__file__).resolve().parents[4]
+            firmware = repo_root / "src" / "dexter_arm_hardware" / "firmware" / "esp32_firmware_wireless.ino"
+            if not firmware.exists():
+                return False
+            text = firmware.read_text(encoding="utf-8", errors="replace")
+            return "set_microros_wifi_transports" in text
+        except Exception:
+            return False
+
+    def _wireless_firmware_agent_config(self) -> dict[str, str] | None:
+        """Read AGENT_IP/AGENT_PORT from wireless firmware when available."""
+        try:
+            repo_root = Path(__file__).resolve().parents[4]
+            firmware = repo_root / "src" / "dexter_arm_hardware" / "firmware" / "esp32_firmware_wireless.ino"
+            if not firmware.exists():
+                return None
+            text = firmware.read_text(encoding="utf-8", errors="replace")
+            ip_match = re.search(r'^\s*#define\s+AGENT_IP\s+"([^"]+)"', text, re.MULTILINE)
+            port_match = re.search(r'^\s*#define\s+AGENT_PORT\s+(\d+)', text, re.MULTILINE)
+            if not ip_match and not port_match:
+                return None
+            return {
+                "ip": ip_match.group(1) if ip_match else "",
+                "port": port_match.group(1) if port_match else "",
+            }
+        except Exception:
+            return None
+
+    def _host_lan_ip(self) -> str:
+        """Best-effort host LAN IP for UDP agent hinting."""
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return ""
 
     def _elapsed_sec(self) -> int:
         if self._started_at is None:
@@ -169,6 +213,81 @@ class HardwareBootstrapService:
                     queue.append(child)
         return descendants
 
+    async def _terminate_pid(self, pid: int, name: str, timeout_sec: int = 3) -> bool:
+        """Terminate a PID, preferring process-group kill when possible."""
+        try:
+            pgid = os.getpgid(pid)
+        except ProcessLookupError:
+            return True
+        except Exception:
+            pgid = None
+
+        try:
+            if pgid is not None and pgid == pid:
+                os.killpg(pgid, signal.SIGTERM)
+            else:
+                os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return True
+        except Exception as exc:
+            self._append_log(f"Failed to terminate {name} PID {pid}: {exc}")
+            return False
+
+        deadline = time.time() + timeout_sec
+        while time.time() < deadline:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                self._append_log(f"{name} PID {pid} stopped gracefully")
+                return True
+            await asyncio.sleep(0.15)
+
+        try:
+            if pgid is not None and pgid == pid:
+                os.killpg(pgid, signal.SIGKILL)
+            else:
+                os.kill(pid, signal.SIGKILL)
+            self._append_log(f"Force-killed {name} PID {pid}")
+            return True
+        except ProcessLookupError:
+            return True
+        except Exception as exc:
+            self._append_log(f"Failed to force-kill {name} PID {pid}: {exc}")
+            return False
+
+    async def _cleanup_stale_micro_ros_agents(self, transport: str, device_port: str) -> int:
+        """Kill orphan micro-ROS agent processes left from previous failed starts."""
+        rows = self._ps_rows()
+        if not rows:
+            return 0
+
+        wanted: list[int] = []
+        dev_real = os.path.realpath(device_port) if device_port.startswith("/dev/") else device_port
+        for pid, _ppid, cmd in rows:
+            cmd_l = cmd.lower()
+            if "micro_ros_agent" not in cmd_l:
+                continue
+            if self._agent_process and pid == self._agent_process.pid:
+                continue
+
+            if transport == "serial":
+                serial_match = " serial " in f" {cmd_l} " and (device_port in cmd or dev_real in cmd)
+                if serial_match:
+                    wanted.append(pid)
+            elif transport == "udp":
+                udp_match = " udp4 " in f" {cmd_l} " and f"--port {device_port}" in cmd
+                if udp_match:
+                    wanted.append(pid)
+            else:
+                wanted.append(pid)
+
+        if not wanted:
+            return 0
+
+        for pid in sorted(set(wanted)):
+            await self._terminate_pid(pid, name="stale_micro_ros_agent")
+        return len(set(wanted))
+
     def _hardware_ready(self, use_rviz: bool, load_moveit: bool) -> bool:
         if not self._hardware_process:
             return False
@@ -227,7 +346,11 @@ class HardwareBootstrapService:
             "elapsed_sec": self._elapsed_sec(),
             "current_attempt": self._current_attempt,
             "max_attempts": self._max_attempts,
-            "suggest_reset": self._phase == "agent_connecting" and self._elapsed_sec() >= 10,
+            "suggest_reset": (
+                self._agent_transport == "serial"
+                and self._phase == "agent_connecting"
+                and self._elapsed_sec() >= 10
+            ),
             "session_logs": self._logs,
             "agent_running": agent_running,
             "agent_pid": agent_pid,
@@ -253,6 +376,13 @@ class HardwareBootstrapService:
         agent_timeout_sec: int = 30,
         agent_max_retries: int = 3,
     ) -> dict:
+        effective_timeout_sec = agent_timeout_sec
+        effective_max_retries = agent_max_retries
+        if transport == "udp":
+            # UDP over WiFi is bursty on startup; use a wider connect window.
+            effective_timeout_sec = max(30, min(agent_timeout_sec, 120))
+            effective_max_retries = max(3, agent_max_retries)
+
         self._use_rviz = use_rviz
         self._load_moveit = load_moveit
         self._agent_transport = transport
@@ -262,24 +392,56 @@ class HardwareBootstrapService:
         self._logs = []
         self._started_at = time.time()
         self._current_attempt = 0
-        self._max_attempts = agent_max_retries
+        self._max_attempts = effective_max_retries
         self._reset_hint_logged = False
         self._set_state("bootstrapping", "agent_connecting", "Starting micro-ROS agent connection")
 
-        for attempt in range(agent_max_retries):
+        if transport == "serial" and self._firmware_uses_wifi_transport():
+            self._last_error = (
+                "Detected WiFi micro-ROS firmware; serial transport cannot establish runtime ROS session. "
+                "Use transport='udp' (typically port 8888)."
+            )
+            self._set_state("failed", "agent_unavailable", self._last_error)
+            return {"status": "failed", "stage": 1, "message": self._message}
+
+        if transport == "udp":
+            cfg = self._wireless_firmware_agent_config()
+            host_ip = self._host_lan_ip()
+            if cfg:
+                cfg_ip = cfg.get("ip", "")
+                cfg_port = cfg.get("port", "")
+                if cfg_ip and host_ip and cfg_ip != host_ip:
+                    self._append_log(
+                        f"Firmware AGENT_IP is {cfg_ip}, but host LAN IP appears {host_ip}. "
+                        "If these differ, ESP32 cannot reach micro-ROS agent."
+                    )
+                if cfg_port and str(cfg_port) != str(device_port):
+                    self._append_log(
+                        f"Firmware AGENT_PORT is {cfg_port}, but middleware UDP port is {device_port}. "
+                        "These should match."
+                    )
+
+        stale_killed = await self._cleanup_stale_micro_ros_agents(transport=transport, device_port=device_port)
+        if stale_killed > 0:
+            self._append_log(f"Cleaned {stale_killed} stale micro-ROS agent process(es) before retry")
+
+        agent_connected = False
+        for attempt in range(effective_max_retries):
             self._current_attempt = attempt + 1
             try:
-                self._append_log(f"Agent connection attempt {attempt + 1}/{agent_max_retries}")
+                self._append_log(f"Agent connection attempt {attempt + 1}/{effective_max_retries}")
                 result = await self._start_agent_and_wait(
                     transport=transport,
                     device_port=device_port,
-                    timeout_sec=agent_timeout_sec,
+                    timeout_sec=effective_timeout_sec,
+                    reuse_existing=(transport == "udp"),
                 )
                 success = result["success"]
                 fatal = result["fatal"]
                 fatal_message = result["message"]
 
                 if success:
+                    agent_connected = True
                     self._set_state("bootstrapping", "agent_connected", "Agent session established")
                     break
 
@@ -289,18 +451,26 @@ class HardwareBootstrapService:
                     self._set_state("failed", "agent_unavailable", fatal_message)
                     break
 
-                await self._cleanup_agent()
-                if attempt < agent_max_retries - 1:
-                    self._append_log("Retrying in 2 seconds...")
-                    await asyncio.sleep(2)
+                if attempt < effective_max_retries - 1:
+                    backoff_sec = min(8, 2 * (attempt + 1))
+                    self._append_log(f"Retrying in {backoff_sec} seconds...")
+                    # Keep UDP agent running while waiting for late ESP32 session.
+                    if transport != "udp":
+                        await self._cleanup_agent()
+                    await asyncio.sleep(backoff_sec)
             except Exception as e:
                 self._last_error = str(e)
                 self._append_log(f"Agent error: {e}")
                 await self._cleanup_agent()
 
-        if not self._agent_process or self._agent_process.poll() is not None:
+        if not agent_connected:
             if self._phase != "agent_unavailable":
-                self._set_state("failed", "agent_failed", f"Agent failed to connect after {agent_max_retries} attempts")
+                self._set_state(
+                    "failed",
+                    "agent_failed",
+                    f"Agent session not established after {effective_max_retries} attempts",
+                )
+            await self._cleanup_agent()
             return {"status": "failed", "stage": 1, "message": self._message}
 
         try:
@@ -336,7 +506,13 @@ class HardwareBootstrapService:
             await self._cleanup_agent()
             return {"status": "failed", "stage": 2, "message": f"Hardware launch error: {e}"}
 
-    async def _start_agent_and_wait(self, transport: str, device_port: str, timeout_sec: int) -> dict:
+    async def _start_agent_and_wait(
+        self,
+        transport: str,
+        device_port: str,
+        timeout_sec: int,
+        reuse_existing: bool = False,
+    ) -> dict:
         if transport == "serial":
             cmd = [
                 "ros2",
@@ -358,6 +534,7 @@ class HardwareBootstrapService:
                 "udp4",
                 "--port",
                 str(device_port),
+                "-v4",
             ]
         else:
             raise ValueError(f"Unknown transport: {transport}")
@@ -366,22 +543,41 @@ class HardwareBootstrapService:
         self._agent_command = " ".join(shell_cmd)
 
         try:
-            self._agent_process = subprocess.Popen(
-                shell_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                env=self._sanitized_env(),
+            reusing_agent = (
+                reuse_existing
+                and self._agent_process is not None
+                and self._agent_process.poll() is None
             )
-            self._append_log(f"Agent subprocess started (PID {self._agent_process.pid})")
+
+            if not reusing_agent:
+                self._agent_process = subprocess.Popen(
+                    shell_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    env=self._sanitized_env(),
+                    start_new_session=True,
+                )
+                self._append_log(f"Agent subprocess started (PID {self._agent_process.pid})")
+            else:
+                self._append_log(f"Reusing running agent process (PID {self._agent_process.pid})")
 
             start_time = time.time()
+            # Important: do not treat generic agent-start text as a valid ESP32 session.
+            # Stage 2 must start only after an explicit client/session marker appears.
             session_patterns = [
                 r"New session",
-                r"RUNNING",
                 r"Client connected",
                 r"session established",
+                r"create_client",
+                r"create session",
+                r"session created",
+                r"session re-established",
+                r"new client",
+                r"create participant",
+                r"create publisher",
+                r"create subscriber",
             ]
 
             while time.time() - start_time < timeout_sec:
@@ -396,7 +592,7 @@ class HardwareBootstrapService:
                     )
                 except asyncio.TimeoutError:
                     if (time.time() - start_time) >= 10 and not self._reset_hint_logged:
-                        self._append_log("No session yet after 10s. If ESP32 is connected, press RESET button once.")
+                        self._append_log("No micro-ROS client session yet; waiting for ESP32 UDP connection...")
                         self._reset_hint_logged = True
                     continue
                 except Exception as e:
@@ -432,6 +628,11 @@ class HardwareBootstrapService:
                         self._agent_session_markers.append(line)
                         return {"success": True, "fatal": False, "message": "ok"}
 
+            if transport == "udp":
+                self._append_log(
+                    "UDP timeout: verify ESP32 is online, AGENT_IP/AGENT_PORT in firmware match this host, "
+                    "and ESP32 and host are on the same WiFi network."
+                )
             return {"success": False, "fatal": False, "message": "timeout"}
         except Exception as e:
             self._last_error = str(e)
@@ -529,7 +730,8 @@ class HardwareBootstrapService:
 
     async def _terminate_process(self, proc: subprocess.Popen, name: str, timeout_sec: int = 4) -> None:
         try:
-            proc.terminate()
+            pid = proc.pid
+            await self._terminate_pid(pid=pid, name=name, timeout_sec=timeout_sec)
             for _ in range(timeout_sec * 2):
                 if proc.poll() is not None:
                     self._append_log(f"{name} stopped gracefully")
