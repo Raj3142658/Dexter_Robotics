@@ -216,7 +216,7 @@ Teardown in reverse order: hardware_bringup → agent.
    - Update `disconnect()` to stop hardware_service
    - Add safety cleanup: hardware start() stops all simulation (Track 1 + Track 2)
 
-4. **`dexter_temp_ui/index.html`** (patch)
+4. **Temp web UI removed**
    - Add Phase 4 panel:
      - Transport dropdown: "Serial" / "UDP"
      - Device/Port input: text field for `/dev/ttyUSB0` or `8888`
@@ -225,7 +225,7 @@ Teardown in reverse order: hardware_bringup → agent.
      - Start / Stop / Status Refresh buttons
      - Status display: connection state + session markers + error messages
 
-5. **`dexter_temp_ui/app.js`** (patch)
+5. **Temp web UI removed**
    - `getHardwareStatus()` function
    - `startHardware()` / `stopHardware()` event handlers
    - Poll interval: 2s (faster refresh for hardware connection feedback)

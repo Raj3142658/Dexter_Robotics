@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT="/home/raj/Dexter_Robotics"
 RUNTIME_DIR="$ROOT/.runtime/control_center"
 MIDDLEWARE_PORT="8080"
-UI_PORT="8090"
 QUIET=0
 FROM_API=0
 
@@ -45,10 +44,8 @@ kill_port() {
   fi
 }
 
-kill_pid_file "$RUNTIME_DIR/ui.pid"
 kill_pid_file "$RUNTIME_DIR/middleware.pid"
 
-kill_port "$UI_PORT"
 kill_port "$MIDDLEWARE_PORT"
 
 # Optionally stop the launcher shell if it still exists.

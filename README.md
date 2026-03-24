@@ -13,4 +13,3 @@ This workspace is independent from `Dexter-arm-Robotics` and is intended for the
 ## New MVP components
 
 - `src/dexter_middleware` : FastAPI middleware for flow testing
-- `src/dexter_temp_ui` : Temporary browser UI for exercising middleware APIs

@@ -93,16 +93,47 @@ bridge_control_lock = asyncio.Lock()
 TRAJECTORY_BACKEND_MODE = os.getenv("DEXTER_TRAJECTORY_BACKEND_MODE", "auto").strip().lower()
 NATIVE_TRAJECTORY_RUNTIME_DIR = REPO_ROOT / ".runtime" / "trajectory_native"
 NATIVE_TRAJECTORY_JOBS_DIR = NATIVE_TRAJECTORY_RUNTIME_DIR / "jobs"
+NATIVE_TRAJECTORY_LIBRARY_DIR = NATIVE_TRAJECTORY_RUNTIME_DIR / "library"
 NATIVE_TRAJECTORY_INDEX_FILE = NATIVE_TRAJECTORY_RUNTIME_DIR / "jobs_index.json"
+TEACH_TRAJECTORY_RUNTIME_DIR = REPO_ROOT / ".runtime" / "trajectory_teach"
+TEACH_TRAJECTORY_SAVED_DIR = TEACH_TRAJECTORY_RUNTIME_DIR / "saved"
+TEACH_TRAJECTORY_STATE_FILE = TEACH_TRAJECTORY_RUNTIME_DIR / "session_state.json"
 BRIDGE_TRAJECTORY_JOBS_DIR = REPO_ROOT / ".runtime" / "trajectory_bridge" / "jobs"
 NATIVE_JOB_PREFIX = "native_"
 NATIVE_ARTIFACT_SCHEMA_VERSION = "dexter.trajectory.native.v1"
+NATIVE_EXECUTE_SCHEMA_VERSION = "dexter.trajectory.execute14.v1"
 TRAJECTORY_JOB_CONTRACT_VERSION = "dexter.trajectory.job.v1"
 BRIDGE_ARTIFACT_SCHEMA_VERSION = "dexter.trajectory.bridge.compat.v1"
 NATIVE_TRAJECTORY_JOBS: dict[str, dict[str, Any]] = {}
+TEACH_SESSION_STATE: dict[str, Any] = {
+    "segments": [],
+    "compiled_job_id": None,
+    "compiled_at": None,
+    "last_saved_file": None,
+}
 
 NATIVE_TRAJECTORY_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 NATIVE_TRAJECTORY_JOBS_DIR.mkdir(parents=True, exist_ok=True)
+NATIVE_TRAJECTORY_LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
+TEACH_TRAJECTORY_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+TEACH_TRAJECTORY_SAVED_DIR.mkdir(parents=True, exist_ok=True)
+
+HARDWARE_JOINT_ORDER_14 = [
+    "j1l",
+    "j2l",
+    "j3l",
+    "j4l",
+    "j5l",
+    "j6l",
+    "gripper_l_servo",
+    "j1r",
+    "j2r",
+    "j3r",
+    "j4r",
+    "j5r",
+    "j6r",
+    "gripper_r_servo",
+]
 
 DEFAULT_TRAJECTORY_SAFETY: dict[str, Any] = {
     "defaults": {
@@ -451,6 +482,49 @@ def _save_native_jobs_index() -> None:
     NATIVE_TRAJECTORY_INDEX_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def _save_teach_session_state() -> None:
+    payload = {
+        "saved_at": time.time(),
+        "state": TEACH_SESSION_STATE,
+    }
+    TEACH_TRAJECTORY_STATE_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _load_teach_session_state() -> None:
+    if not TEACH_TRAJECTORY_STATE_FILE.exists():
+        return
+    try:
+        payload = json.loads(TEACH_TRAJECTORY_STATE_FILE.read_text(encoding="utf-8"))
+        state = payload.get("state") if isinstance(payload, dict) else None
+        if not isinstance(state, dict):
+            return
+        segments = state.get("segments")
+        if isinstance(segments, list):
+            TEACH_SESSION_STATE["segments"] = segments
+        TEACH_SESSION_STATE["compiled_job_id"] = state.get("compiled_job_id")
+        TEACH_SESSION_STATE["compiled_at"] = state.get("compiled_at")
+        TEACH_SESSION_STATE["last_saved_file"] = state.get("last_saved_file")
+    except Exception:
+        pass
+
+
+def _teach_default_config() -> dict[str, Any]:
+    return {
+        "arm": "left",
+        "surface": {"normal": [0.0, 0.0, 1.0], "tool_tilt_deg": 0.0},
+        "reference_point": {"x": -0.05, "y": 0.0, "z": 0.24},
+        "shape": {"type": "line", "length": 0.10, "n_points": 30},
+        "execution": {
+            "eef_step": 0.01,
+            "jump_threshold": 0.0,
+            "max_velocity_scaling": 0.2,
+            "max_acceleration_scaling": 0.1,
+            "avoid_collisions": True,
+            "time_param_method": "totg",
+        },
+    }
+
+
 def _load_native_jobs_index() -> None:
     if not NATIVE_TRAJECTORY_INDEX_FILE.exists():
         return
@@ -516,6 +590,173 @@ def _native_waypoint_count(config: dict[str, Any]) -> int:
 
 def _iso_utc_now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _sanitize_trajectory_name(raw_name: str, fallback: str = "trajectory") -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_.-]", "_", (raw_name or "").strip())
+    cleaned = re.sub(r"_+", "_", cleaned).strip("._")
+    if not cleaned:
+        cleaned = fallback
+    return cleaned[:80]
+
+
+def _derive_trajectory_name(config: dict[str, Any], explicit_name: str | None = None) -> str:
+    if explicit_name:
+        return _sanitize_trajectory_name(explicit_name, fallback="trajectory")
+
+    candidates = [
+        config.get("trajectory_name"),
+        config.get("name"),
+        config.get("output_filename"),
+    ]
+    for item in candidates:
+        if not isinstance(item, str):
+            continue
+        value = item.strip()
+        if not value:
+            continue
+        if value.endswith(".yaml") or value.endswith(".yml"):
+            value = Path(value).stem
+        return _sanitize_trajectory_name(value, fallback="trajectory")
+
+    return _sanitize_trajectory_name(f"trajectory_{time.strftime('%Y%m%d_%H%M%S')}", fallback="trajectory")
+
+
+def _make_trajectory_bundle_paths(trajectory_name: str) -> tuple[Path, Path, Path]:
+    safe_name = _sanitize_trajectory_name(trajectory_name, fallback="trajectory")
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    base_dir = NATIVE_TRAJECTORY_LIBRARY_DIR / f"{safe_name}_{ts}"
+    target_dir = base_dir
+    suffix = 1
+    while target_dir.exists():
+        target_dir = NATIVE_TRAJECTORY_LIBRARY_DIR / f"{safe_name}_{ts}_{suffix:02d}"
+        suffix += 1
+    target_dir.mkdir(parents=True, exist_ok=False)
+
+    plan_file = target_dir / f"{safe_name}.plan.yaml"
+    execute_file = target_dir / f"{safe_name}.execute.yaml"
+    return target_dir, plan_file, execute_file
+
+
+def _normalize_joint_name_for_hw14(name: str) -> str:
+    key = str(name or "").strip().lower()
+    aliases = {
+        "j7l": "gripper_l_servo",
+        "j7l1": "gripper_l_servo",
+        "j7l2": "gripper_l_servo",
+        "left_gripper": "gripper_l_servo",
+        "left_gripper_servo": "gripper_l_servo",
+        "j7r": "gripper_r_servo",
+        "j7r1": "gripper_r_servo",
+        "j7r2": "gripper_r_servo",
+        "right_gripper": "gripper_r_servo",
+        "right_gripper_servo": "gripper_r_servo",
+    }
+    if key in aliases:
+        return aliases[key]
+    return key
+
+
+def _parse_time_from_point(raw: Any) -> float:
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    if isinstance(raw, dict):
+        sec = float(raw.get("sec", 0.0) or 0.0)
+        nanosec = float(raw.get("nanosec", 0.0) or 0.0)
+        return sec + nanosec * 1e-9
+    return 0.0
+
+
+def _prismatic_to_servo_rad(value_m: float) -> float:
+    rad = (float(value_m) / -0.022) * math.pi
+    return max(0.0, min(math.pi, rad))
+
+
+def _extract_execute_points_14(config: dict[str, Any]) -> list[dict[str, Any]]:
+    sources: list[tuple[list[str], list[dict[str, Any]]]] = []
+
+    jt = config.get("joint_trajectory") if isinstance(config.get("joint_trajectory"), dict) else None
+    if isinstance(jt, dict):
+        jn = jt.get("joint_names") if isinstance(jt.get("joint_names"), list) else []
+        pts = jt.get("points") if isinstance(jt.get("points"), list) else []
+        if jn and pts:
+            sources.append(([str(x) for x in jn], [x for x in pts if isinstance(x, dict)]))
+
+    traj = config.get("trajectory") if isinstance(config.get("trajectory"), dict) else None
+    if isinstance(traj, dict):
+        jn = traj.get("joint_names") if isinstance(traj.get("joint_names"), list) else []
+        pts = traj.get("points") if isinstance(traj.get("points"), list) else []
+        if jn and pts:
+            sources.append(([str(x) for x in jn], [x for x in pts if isinstance(x, dict)]))
+
+    cfg_jn = config.get("joint_names") if isinstance(config.get("joint_names"), list) else []
+    cfg_pts = config.get("points") if isinstance(config.get("points"), list) else []
+    if cfg_jn and cfg_pts:
+        sources.append(([str(x) for x in cfg_jn], [x for x in cfg_pts if isinstance(x, dict)]))
+
+    if not sources:
+        return []
+
+    canonical = [_normalize_joint_name_for_hw14(name) for name in HARDWARE_JOINT_ORDER_14]
+    out_points: list[dict[str, Any]] = []
+
+    for raw_joint_names, raw_points in sources:
+        joint_names = [_normalize_joint_name_for_hw14(x) for x in raw_joint_names]
+        index_map = {name: idx for idx, name in enumerate(joint_names)}
+
+        for pt in raw_points:
+            positions_raw = pt.get("positions") if isinstance(pt.get("positions"), list) else []
+            if not positions_raw:
+                continue
+
+            p14: list[float] = []
+            for hw_name in canonical:
+                idx = index_map.get(hw_name)
+                value = 0.0
+                if idx is not None and idx < len(positions_raw):
+                    value = float(positions_raw[idx])
+                elif hw_name == "gripper_l_servo":
+                    for gr_alias in ("j7l1", "j7l2"):
+                        a_idx = index_map.get(gr_alias)
+                        if a_idx is not None and a_idx < len(positions_raw):
+                            value = _prismatic_to_servo_rad(float(positions_raw[a_idx]))
+                            break
+                elif hw_name == "gripper_r_servo":
+                    for gr_alias in ("j7r1", "j7r2"):
+                        a_idx = index_map.get(gr_alias)
+                        if a_idx is not None and a_idx < len(positions_raw):
+                            value = _prismatic_to_servo_rad(float(positions_raw[a_idx]))
+                            break
+                p14.append(round(float(value), 6))
+
+            out_points.append(
+                {
+                    "time_from_start": round(_parse_time_from_point(pt.get("time_from_start")), 6),
+                    "positions": p14,
+                }
+            )
+
+        if out_points:
+            break
+
+    return out_points
+
+
+def _native_execute_payload(job_id: str, trajectory_name: str, config: dict[str, Any], plan_waypoints: int) -> dict[str, Any]:
+    execute_points = _extract_execute_points_14(config)
+    return {
+        "schema_version": NATIVE_EXECUTE_SCHEMA_VERSION,
+        "kind": "dexter_trajectory_execute_hw14",
+        "trajectory_name": trajectory_name,
+        "job_id": job_id,
+        "generated_at": _iso_utc_now(),
+        "hardware_joint_order": HARDWARE_JOINT_ORDER_14,
+        "point_count": len(execute_points),
+        "plan_waypoint_count": int(plan_waypoints),
+        "ready_for_hardware": bool(execute_points),
+        "note": "This file is hardware-oriented (14 joints). If points are empty, IK/trajectory joints were not provided by source config.",
+        "points": execute_points,
+    }
 
 
 def _sha256_json(value: Any) -> str:
@@ -585,6 +826,7 @@ def _render_yaml_document(value: dict[str, Any]) -> str:
 def _native_artifact_payload(
     *,
     job_id: str,
+    trajectory_name: str,
     config: dict[str, Any],
     arm: str,
     surface: str,
@@ -621,6 +863,7 @@ def _native_artifact_payload(
         "kind": "dexter_trajectory_plan",
         "job": {
             "id": job_id,
+            "trajectory_name": trajectory_name,
             "backend": "native",
             "created_at": _iso_utc_now(),
         },
@@ -647,6 +890,7 @@ def _native_artifact_payload(
                 "type": shape,
                 **{k: float(v) for k, v in sorted(params.items())},
             },
+            "trajectory_name": trajectory_name,
             "config": config,
         },
         "trajectory": {
@@ -660,9 +904,11 @@ def _native_artifact_payload(
 
 
 def _write_native_output(job_id: str, config: dict[str, Any], *, preflight: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
-    output_file = NATIVE_TRAJECTORY_JOBS_DIR / f"{job_id}.yaml"
+    trajectory_name = _derive_trajectory_name(config)
+    target_dir, plan_file, execute_file = _make_trajectory_bundle_paths(trajectory_name)
     payload, waypoints = _native_artifact_payload(
         job_id=job_id,
+        trajectory_name=trajectory_name,
         config=config,
         arm=str(preflight["arm"]),
         surface=str(preflight["surface"]),
@@ -671,26 +917,53 @@ def _write_native_output(job_id: str, config: dict[str, Any], *, preflight: dict
         ref_y=float(preflight["ref_y"]),
         ref_z=float(preflight["ref_z"]),
     )
-    output_file.write_text(_render_yaml_document(payload), encoding="utf-8")
+    plan_file.write_text(_render_yaml_document(payload), encoding="utf-8")
+
+    exec_payload = _native_execute_payload(
+        job_id=job_id,
+        trajectory_name=trajectory_name,
+        config=config,
+        plan_waypoints=len(waypoints),
+    )
+    execute_file.write_text(_render_yaml_document(exec_payload), encoding="utf-8")
 
     summary = payload["trajectory"] if isinstance(payload.get("trajectory"), dict) else {}
-    return output_file, {
+    return plan_file, {
+        "trajectory_name": trajectory_name,
+        "trajectory_dir": str(target_dir),
+        "plan_file": str(plan_file),
+        "execute_file": str(execute_file),
         "waypoints": len(waypoints),
+        "execute_points": int(exec_payload.get("point_count", 0)),
         "path_length_m": float(summary.get("path_length_m", 0.0)),
         "artifact_schema": str(payload.get("schema_version", NATIVE_ARTIFACT_SCHEMA_VERSION)),
         "artifact_format": "yaml",
     }
 
 
-def _native_generate(config: dict[str, Any], *, preflight: dict[str, Any]) -> dict[str, Any]:
+def _native_generate(
+    config: dict[str, Any],
+    *,
+    preflight: dict[str, Any],
+    trajectory_name: str | None = None,
+) -> dict[str, Any]:
+    if trajectory_name:
+        config = dict(config)
+        config["trajectory_name"] = _sanitize_trajectory_name(trajectory_name, fallback="trajectory")
+
     job_id = f"{NATIVE_JOB_PREFIX}{uuid.uuid4().hex[:12]}"
     output_file, summary = _write_native_output(job_id, config, preflight=preflight)
     job = {
         "job_id": job_id,
         "status": "done",
         "output_file": str(output_file),
+        "trajectory_name": str(summary["trajectory_name"]),
+        "trajectory_dir": str(summary["trajectory_dir"]),
+        "plan_file": str(summary["plan_file"]),
+        "execute_file": str(summary["execute_file"]),
         "duration": 0.05,
         "waypoints": int(summary["waypoints"]),
+        "execute_points": int(summary["execute_points"]),
         "fraction": 100.0,
         "backend": "native",
         "artifact_schema": str(summary["artifact_schema"]),
@@ -727,19 +1000,30 @@ def _native_delete_job(job_id: str) -> dict[str, Any]:
     removed = NATIVE_TRAJECTORY_JOBS.pop(job_id, None)
     output_file = NATIVE_TRAJECTORY_JOBS_DIR / f"{job_id}.yaml"
     meta_file = NATIVE_TRAJECTORY_JOBS_DIR / f"{job_id}.meta.json"
+    trajectory_dir = None
+    if isinstance(removed, dict):
+        td = removed.get("trajectory_dir")
+        if isinstance(td, str) and td.strip():
+            trajectory_dir = Path(td)
+
     file_deleted = False
     meta_deleted = False
+    dir_deleted = False
     if output_file.exists():
         output_file.unlink()
         file_deleted = True
     if meta_file.exists():
         meta_file.unlink()
         meta_deleted = True
+    if trajectory_dir and trajectory_dir.exists() and trajectory_dir.is_dir():
+        shutil.rmtree(trajectory_dir, ignore_errors=True)
+        dir_deleted = not trajectory_dir.exists()
     _save_native_jobs_index()
     return {
         "removed_from_index": removed is not None,
         "file_deleted": file_deleted,
         "meta_deleted": meta_deleted,
+        "dir_deleted": dir_deleted,
     }
 
 
@@ -792,6 +1076,7 @@ def _is_native_job_id(job_id: str) -> bool:
 
 
 _load_native_jobs_index()
+_load_teach_session_state()
 
 
 async def broadcast(event: EventMessage) -> None:
@@ -1873,11 +2158,195 @@ async def stop_trajectory() -> dict:
     return snapshot()
 
 
+@app.get("/trajectory/teach/status")
+async def trajectory_teach_status() -> dict:
+    segments = TEACH_SESSION_STATE.get("segments")
+    segment_count = len(segments) if isinstance(segments, list) else 0
+    compiled_job_id = TEACH_SESSION_STATE.get("compiled_job_id")
+    compiled_job = _native_get_job(str(compiled_job_id)) if compiled_job_id else None
+    return {
+        "ok": True,
+        "segments_count": segment_count,
+        "compiled_job_id": compiled_job_id,
+        "compiled_at": TEACH_SESSION_STATE.get("compiled_at"),
+        "last_saved_file": TEACH_SESSION_STATE.get("last_saved_file"),
+        "compiled_job": _normalize_job_contract(compiled_job, backend_hint="native") if compiled_job else None,
+    }
+
+
+@app.post("/trajectory/teach/capture")
+async def trajectory_teach_capture(payload: dict[str, Any] | None = None) -> dict:
+    body = payload if isinstance(payload, dict) else {}
+    config = body.get("config") if isinstance(body.get("config"), dict) else _teach_default_config()
+
+    arm, surface, params, ref_x, ref_y, ref_z, violations = _preflight_shape_generation_config(config)
+    if violations:
+        raise HTTPException(status_code=400, detail=f"Teach capture preflight failed: {violations[0]}")
+
+    segment = {
+        "segment_id": f"seg_{uuid.uuid4().hex[:8]}",
+        "captured_at": time.time(),
+        "arm": arm,
+        "surface": surface,
+        "params": params,
+        "ref": {"x": ref_x, "y": ref_y, "z": ref_z},
+        "config": config,
+    }
+    segments = TEACH_SESSION_STATE.get("segments")
+    if not isinstance(segments, list):
+        TEACH_SESSION_STATE["segments"] = []
+        segments = TEACH_SESSION_STATE["segments"]
+    segments.append(segment)
+    TEACH_SESSION_STATE["compiled_job_id"] = None
+    TEACH_SESSION_STATE["compiled_at"] = None
+    _save_teach_session_state()
+
+    return {
+        "ok": True,
+        "message": "Segment captured",
+        "segment_id": segment["segment_id"],
+        "segments_count": len(segments),
+    }
+
+
+@app.post("/trajectory/teach/clear")
+async def trajectory_teach_clear() -> dict:
+    TEACH_SESSION_STATE["segments"] = []
+    TEACH_SESSION_STATE["compiled_job_id"] = None
+    TEACH_SESSION_STATE["compiled_at"] = None
+    _save_teach_session_state()
+    return {
+        "ok": True,
+        "message": "Teach buffer cleared",
+        "segments_count": 0,
+    }
+
+
+@app.post("/trajectory/teach/compile")
+async def trajectory_teach_compile(payload: dict[str, Any] | None = None) -> dict:
+    segments = TEACH_SESSION_STATE.get("segments")
+    if not isinstance(segments, list) or not segments:
+        raise HTTPException(status_code=400, detail="No captured teach segments to compile")
+
+    merged_config = _teach_default_config()
+    first_cfg = segments[0].get("config") if isinstance(segments[0], dict) else None
+    if isinstance(first_cfg, dict):
+        merged_config = first_cfg
+
+    # Represent segment count in waypoint sampling for a meaningful compile output.
+    shape_cfg = merged_config.get("shape") if isinstance(merged_config.get("shape"), dict) else {}
+    base_n = int(shape_cfg.get("n_points", 30)) if shape_cfg else 30
+    if isinstance(shape_cfg, dict):
+        shape_cfg["n_points"] = max(10, min(5000, base_n * max(1, len(segments))))
+        merged_config["shape"] = shape_cfg
+
+    arm, surface, params, ref_x, ref_y, ref_z, violations = _preflight_shape_generation_config(merged_config)
+    if violations:
+        raise HTTPException(status_code=400, detail=f"Teach compile preflight failed: {violations[0]}")
+
+    body = payload if isinstance(payload, dict) else {}
+    requested_name = str(body.get("name") or "").strip()
+
+    compiled = _native_generate(
+        merged_config,
+        preflight={
+            "arm": arm,
+            "surface": surface,
+            "params": params,
+            "ref_x": ref_x,
+            "ref_y": ref_y,
+            "ref_z": ref_z,
+        },
+        trajectory_name=requested_name or None,
+    )
+    compiled_job_id = str(compiled.get("job_id", "")).strip()
+    TEACH_SESSION_STATE["compiled_job_id"] = compiled_job_id or None
+    TEACH_SESSION_STATE["compiled_at"] = time.time()
+    _save_teach_session_state()
+
+    return {
+        "ok": True,
+        "message": "Teach trajectory compiled",
+        "segments_count": len(segments),
+        "compiled_job_id": compiled_job_id,
+        "compiled_job": compiled,
+    }
+
+
+@app.post("/trajectory/teach/save")
+async def trajectory_teach_save(payload: dict[str, Any] | None = None) -> dict:
+    compiled_job_id = str(TEACH_SESSION_STATE.get("compiled_job_id") or "").strip()
+    if not compiled_job_id:
+        raise HTTPException(status_code=400, detail="No compiled teach trajectory to save")
+
+    compiled_job = _native_get_job(compiled_job_id)
+    if not compiled_job:
+        raise HTTPException(status_code=404, detail=f"Compiled job not found: {compiled_job_id}")
+
+    output_file = compiled_job.get("output_file")
+    if not isinstance(output_file, str) or not Path(output_file).exists():
+        raise HTTPException(status_code=404, detail=f"Compiled artifact file missing for: {compiled_job_id}")
+
+    body = payload if isinstance(payload, dict) else {}
+    requested_name = str(body.get("name") or "").strip()
+    if not requested_name:
+        raise HTTPException(status_code=400, detail="Trajectory name is required for teach save")
+
+    safe_name = _sanitize_trajectory_name(requested_name, fallback="teach")
+    target_dir = TEACH_TRAJECTORY_SAVED_DIR / safe_name
+    suffix = 1
+    while target_dir.exists():
+        target_dir = TEACH_TRAJECTORY_SAVED_DIR / f"{safe_name}_{suffix:02d}"
+        suffix += 1
+    target_dir.mkdir(parents=True, exist_ok=False)
+
+    plan_target = target_dir / f"{safe_name}.plan.yaml"
+    shutil.copy2(Path(output_file), plan_target)
+
+    execute_source = compiled_job.get("execute_file")
+    execute_target = target_dir / f"{safe_name}.execute.yaml"
+    if isinstance(execute_source, str) and execute_source and Path(execute_source).exists():
+        shutil.copy2(Path(execute_source), execute_target)
+    else:
+        # Legacy jobs may not include execute bundles.
+        placeholder = {
+            "schema_version": NATIVE_EXECUTE_SCHEMA_VERSION,
+            "kind": "dexter_trajectory_execute_hw14",
+            "trajectory_name": safe_name,
+            "job_id": compiled_job_id,
+            "generated_at": _iso_utc_now(),
+            "hardware_joint_order": HARDWARE_JOINT_ORDER_14,
+            "point_count": 0,
+            "plan_waypoint_count": int(compiled_job.get("waypoints") or 0),
+            "ready_for_hardware": False,
+            "note": "Execute points unavailable in source artifact.",
+            "points": [],
+        }
+        execute_target.write_text(_render_yaml_document(placeholder), encoding="utf-8")
+
+    TEACH_SESSION_STATE["last_saved_file"] = str(target_dir)
+    _save_teach_session_state()
+
+    return {
+        "ok": True,
+        "message": "Teach trajectory saved",
+        "compiled_job_id": compiled_job_id,
+        "saved_file": str(target_dir),
+        "filename": safe_name,
+        "plan_file": str(plan_target),
+        "execute_file": str(execute_target),
+    }
+
+
 @app.post("/trajectory/generate")
 async def trajectory_generate(req: TrajectoryGenerateRequest) -> dict:
     config = req.config if isinstance(req.config, dict) else {}
     if not config:
         raise HTTPException(status_code=400, detail="Missing trajectory generation config")
+
+    requested_name = str(config.get("trajectory_name") or config.get("name") or "").strip()
+    if not requested_name:
+        raise HTTPException(status_code=400, detail="trajectory_name is required")
 
     arm, surface, params, ref_x, ref_y, ref_z, violations = _preflight_shape_generation_config(config)
     supported_surfaces = TRAJECTORY_SAFETY.get("defaults", {}).get("supported_surfaces", ["XY"])
@@ -1905,6 +2374,7 @@ async def trajectory_generate(req: TrajectoryGenerateRequest) -> dict:
                 "ref_y": ref_y,
                 "ref_z": ref_z,
             },
+            trajectory_name=requested_name,
         )
 
     bridge_status = _bridge_status_payload()
