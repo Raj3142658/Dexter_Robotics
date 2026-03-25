@@ -15,7 +15,7 @@ namespace dexter_arm_hardware
 namespace {
 constexpr double PI = 3.14159;
 constexpr double TWO_PI = 2.0 * PI;
-constexpr double LEFT_GRIPPER_TRAVEL_M = 0.04;  // 0.0=open, -0.04=closed
+constexpr double GRIPPER_TRAVEL_M = 0.02;  // 0.0=open, -0.02=closed (matches URDF j7*l1/j7*r1)
 constexpr size_t NUM_HW_JOINTS = 14;
 constexpr size_t HEALTH_MSG_FIELDS = 11;
 constexpr double STATE_STALE_TIMEOUT_S = 0.8;
@@ -299,13 +299,13 @@ hardware_interface::return_type DexterHardwareInterface::read(
       hw_velocities_[i + 8] = 0.0;
     }
     
-    // GRIPPER CONVERSION: Revolute (0..2*pi rad) -> Prismatic (0.0..-0.04 m)
+    // GRIPPER CONVERSION: Revolute (0..PI rad) -> Prismatic (0.0..-0.02 m)
     
     // Left Gripper: ESP Index 6 -> ROS Indices 6 (j7l1) and 7 (j7l2)
     double left_servo_rad = latest_state_msg_.data[6];
-    // 0 rad -> 0.0 m (open), 2*pi rad -> -0.04 m (closed)
-    double left_prism_m = -((left_servo_rad / TWO_PI) * LEFT_GRIPPER_TRAVEL_M);
-    left_prism_m = std::max(-LEFT_GRIPPER_TRAVEL_M, std::min(0.0, left_prism_m));
+    // 0 rad -> 0.0 m (open), PI rad -> -0.02 m (closed)
+    double left_prism_m = -((left_servo_rad / PI) * GRIPPER_TRAVEL_M);
+    left_prism_m = std::max(-GRIPPER_TRAVEL_M, std::min(0.0, left_prism_m));
     hw_positions_[6] = left_prism_m;  // j7l1
     hw_positions_[7] = left_prism_m;  // j7l2
     hw_velocities_[6] = 0.0;
@@ -313,7 +313,8 @@ hardware_interface::return_type DexterHardwareInterface::read(
 
     // Right Gripper: ESP Index 13 -> ROS Indices 14 (j7r1) and 15 (j7r2)
     double right_servo_rad = latest_state_msg_.data[13];
-    double right_prism_m = (right_servo_rad / 3.14159) * -0.022;
+    double right_prism_m = -((right_servo_rad / PI) * GRIPPER_TRAVEL_M);
+    right_prism_m = std::max(-GRIPPER_TRAVEL_M, std::min(0.0, right_prism_m));
     hw_positions_[14] = right_prism_m;  // j7r1
     hw_positions_[15] = right_prism_m;  // j7r2
     hw_velocities_[14] = 0.0;
@@ -340,7 +341,9 @@ hardware_interface::return_type DexterHardwareInterface::write(
   }
 
   std_msgs::msg::Float64MultiArray cmd_msg;
-  cmd_msg.data.resize(16);  // [14 joints] + [sequence] + [sender monotonic ms]
+  // Keep transport payload at 14 joints for compatibility with legacy firmware
+  // that rejects extended frames. New firmware still accepts this format.
+  cmd_msg.data.resize(NUM_HW_JOINTS);
 
   auto sanitize_joint = [this](size_t idx) {
       const double cmd = hw_commands_[idx];
@@ -372,15 +375,16 @@ hardware_interface::return_type DexterHardwareInterface::write(
 
   // Left Gripper: j7l1 (ROS Index 6) -> ESP Index 6
   double left_cmd_m = sanitize_joint(6);  // j7l1
-  left_cmd_m = std::max(-LEFT_GRIPPER_TRAVEL_M, std::min(0.0, left_cmd_m));
-  // 0.0 m -> 0 rad, -0.04 m -> 2*pi rad
-  double left_servo_rad = ((-left_cmd_m) / LEFT_GRIPPER_TRAVEL_M) * TWO_PI;
-  left_servo_rad = std::max(0.0, std::min(TWO_PI, left_servo_rad));
+  left_cmd_m = std::max(-GRIPPER_TRAVEL_M, std::min(0.0, left_cmd_m));
+  // 0.0 m -> 0 rad, -0.02 m -> PI rad
+  double left_servo_rad = ((-left_cmd_m) / GRIPPER_TRAVEL_M) * PI;
+  left_servo_rad = std::max(0.0, std::min(PI, left_servo_rad));
   cmd_msg.data[6] = left_servo_rad;
 
   // Right Gripper: j7r1 (ROS Index 14) -> ESP Index 13
   double right_cmd_m = sanitize_joint(14);  // j7r1
-  double right_servo_rad = (right_cmd_m / -0.022) * PI;
+  right_cmd_m = std::max(-GRIPPER_TRAVEL_M, std::min(0.0, right_cmd_m));
+  double right_servo_rad = ((-right_cmd_m) / GRIPPER_TRAVEL_M) * PI;
   right_servo_rad = std::max(0.0, std::min(PI, right_servo_rad));
   cmd_msg.data[13] = right_servo_rad;
 
@@ -427,13 +431,6 @@ hardware_interface::return_type DexterHardwareInterface::write(
     last_published_targets_[i] = cmd_msg.data[i];
   }
   last_targets_initialized_ = true;
-
-  // Metadata for firmware stale/out-of-order rejection.
-  command_sequence_++;
-  cmd_msg.data[14] = static_cast<double>(command_sequence_);
-  const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-    std::chrono::steady_clock::now().time_since_epoch()).count();
-  cmd_msg.data[15] = static_cast<double>(now_ms);
 
   command_pub_->publish(cmd_msg);
 

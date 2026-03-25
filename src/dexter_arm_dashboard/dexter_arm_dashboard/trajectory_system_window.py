@@ -137,7 +137,7 @@ class TrajectorySystemWindow(QWidget):
         self._log("which is not available in the current Dexter_Robotics workspace.")
         self._log("")
         self._log("RECOMMENDED: Use middleware APIs from FastAPI docs instead:")
-        self._log("  1. Open http://127.0.0.1:8080/docs in your browser")
+        self._log("  1. Open http://127.0.0.1:8090 in your browser")
         self._log("  2. Use /trajectory/* endpoints for generate/validate/execute")
         self._log("  3. Use /ros/* endpoints for runtime stack control")
         self._log("")
@@ -1253,7 +1253,7 @@ class TrajectorySystemWindow(QWidget):
         cmd = (
             f"{self._shell_prefix}"
             f"echo 'Note: Advanced shape generation requires dexter_trajectory_generator package' && "
-            f"echo 'Use middleware API docs (http://127.0.0.1:8080/docs) for shape generation endpoints' && "
+            f"echo 'Use operator UI (http://127.0.0.1:8090) and API docs (http://127.0.0.1:8080/docs)' && "
             f"echo '[ERROR] dexter_trajectory_generator package not found in current workspace' && "
             f"false"
         )

@@ -8,7 +8,7 @@ class JogJointRequest(BaseModel):
 
 class ExecuteTrajectoryRequest(BaseModel):
     name: str = Field(min_length=1)
-    duration_sec: float = Field(gt=0)
+    duration_sec: float = Field(default=5.0, gt=0)
 
 
 class EventMessage(BaseModel):

@@ -24,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from .models import CleanupRequest, EventMessage, ExecuteTrajectoryRequest, FirmwareUploadStartRequest, FullStackStartRequest, GazeboStartRequest, HardwareBootstrapStartRequest, JogJointRequest, MoveitStartRequest, RvizStartRequest, TrajectoryGenerateRequest, TrajectorySafetyCheckRequest, TrajectorySafetyDefaultReferenceRequest, TrajectorySafetyLimitsRequest
+from .trajectory_executor import ExecuteArtifactError, LoadedExecuteArtifact, load_execute_artifact, run_loaded_execute_artifact
 from .services.full_stack_service import FullStackService
 from .services.gazebo_service import GazeboService
 from .services.hardware_bootstrap_service import HardwareBootstrapService
@@ -35,6 +36,7 @@ app = FastAPI(title="Dexter Middleware", version="0.1.0")
 REPO_ROOT = Path(__file__).resolve().parents[3]
 STOP_SCRIPT = REPO_ROOT / "scripts" / "stop_control_center.sh"
 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -42,7 +44,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 state = RobotState()
 clients: set[WebSocket] = set()
 state_lock = asyncio.Lock()
@@ -95,6 +96,7 @@ NATIVE_TRAJECTORY_RUNTIME_DIR = REPO_ROOT / ".runtime" / "trajectory_native"
 NATIVE_TRAJECTORY_JOBS_DIR = NATIVE_TRAJECTORY_RUNTIME_DIR / "jobs"
 NATIVE_TRAJECTORY_LIBRARY_DIR = NATIVE_TRAJECTORY_RUNTIME_DIR / "library"
 NATIVE_TRAJECTORY_INDEX_FILE = NATIVE_TRAJECTORY_RUNTIME_DIR / "jobs_index.json"
+NATIVE_EXECUTION_REPORTS_DIR = NATIVE_TRAJECTORY_RUNTIME_DIR / "execution_reports"
 TEACH_TRAJECTORY_RUNTIME_DIR = REPO_ROOT / ".runtime" / "trajectory_teach"
 TEACH_TRAJECTORY_SAVED_DIR = TEACH_TRAJECTORY_RUNTIME_DIR / "saved"
 TEACH_TRAJECTORY_STATE_FILE = TEACH_TRAJECTORY_RUNTIME_DIR / "session_state.json"
@@ -115,6 +117,7 @@ TEACH_SESSION_STATE: dict[str, Any] = {
 NATIVE_TRAJECTORY_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 NATIVE_TRAJECTORY_JOBS_DIR.mkdir(parents=True, exist_ok=True)
 NATIVE_TRAJECTORY_LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
+NATIVE_EXECUTION_REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 TEACH_TRAJECTORY_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 TEACH_TRAJECTORY_SAVED_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -173,6 +176,60 @@ TRAJECTORY_SAFETY = _load_trajectory_safety()
 
 def _clamp(value: float, min_val: float, max_val: float) -> float:
     return min(max_val, max(min_val, value))
+
+
+def _trajectory_execute_transport_mode() -> str:
+    return str(os.getenv("DEXTER_TRAJECTORY_EXECUTE_TRANSPORT", "dry_run")).strip().lower() or "dry_run"
+
+
+def _env_truthy(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _save_execution_report(report: dict[str, Any]) -> Path:
+    run_id = str(report.get("run_id") or f"exec_{uuid.uuid4().hex[:10]}")
+    report["run_id"] = run_id
+    path = NATIVE_EXECUTION_REPORTS_DIR / f"{run_id}.json"
+    path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    return path
+
+
+def _load_execution_report(run_id: str) -> dict[str, Any] | None:
+    target = NATIVE_EXECUTION_REPORTS_DIR / f"{run_id}.json"
+    if not target.exists():
+        return None
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if isinstance(payload, dict):
+        payload.setdefault("run_id", run_id)
+        payload.setdefault("report_file", str(target))
+        return payload
+    return None
+
+
+def _list_execution_reports(limit: int = 20, artifact_job_id: str | None = None) -> list[dict[str, Any]]:
+    normalized_job = (artifact_job_id or "").strip()
+    items: list[dict[str, Any]] = []
+    for fp in sorted(NATIVE_EXECUTION_REPORTS_DIR.glob("exec_*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            payload = json.loads(fp.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if normalized_job and str(payload.get("artifact_job_id") or "") != normalized_job:
+            continue
+        payload.setdefault("run_id", fp.stem)
+        payload.setdefault("report_file", str(fp))
+        items.append(payload)
+        if len(items) >= max(1, min(limit, 500)):
+            break
+    return items
 
 
 def _bridge_json_request(method: str, path: str, payload: dict | None = None, timeout_sec: float = 10.0) -> dict:
@@ -1994,6 +2051,186 @@ async def _run_trajectory(name: str, duration_sec: float, context: str = "simula
         raise
 
 
+async def _run_execute_artifact_trajectory(
+    *,
+    name: str,
+    artifact: LoadedExecuteArtifact,
+    context: str,
+    run_id: str,
+    artifact_job_id: str | None,
+) -> None:
+    context_label = {
+        "hardware": "[Hardware]",
+        "gazebo": "[Gazebo Sim]",
+        "full_stack": "[Full-Stack Sim]",
+        "simulated": "[Simulated]",
+    }.get(context, "[Unknown]")
+
+    started_at = time.time()
+    exec_result: dict[str, Any] | None = None
+    transport_mode = _trajectory_execute_transport_mode()
+    watchdog_enabled = _env_truthy("DEXTER_TRAJECTORY_EXECUTION_WATCHDOG_ENABLED", True)
+    watchdog_interval_sec = max(0.05, float(os.getenv("DEXTER_TRAJECTORY_EXECUTION_WATCHDOG_INTERVAL_SEC", "0.25")))
+    last_watchdog_at = 0.0
+
+    def _watchdog_check() -> None:
+        nonlocal last_watchdog_at
+        if not watchdog_enabled:
+            return
+        if transport_mode in {"", "dry_run", "none", "noop"}:
+            return
+
+        now = time.monotonic()
+        if (now - last_watchdog_at) < watchdog_interval_sec:
+            return
+        last_watchdog_at = now
+
+        if context == "hardware":
+            hw = hardware_service.status()
+            if not bool(hw.get("agent_running")) or not bool(hw.get("launch_running")):
+                raise RuntimeError("Hardware session lost during execution")
+        elif context == "full_stack":
+            fs = full_stack_service.status()
+            if not bool(fs.running):
+                raise RuntimeError("Full-stack session lost during execution")
+
+    async def _progress_callback(progress: float) -> None:
+        _watchdog_check()
+        state.trajectory_progress = max(0.0, min(1.0, float(progress)))
+        await broadcast(
+            EventMessage(
+                type="trajectory_progress",
+                message=f"{context_label} {name} at {int(state.trajectory_progress * 100)}%",
+                payload=snapshot(),
+            )
+        )
+
+    try:
+        await broadcast(
+            EventMessage(
+                type="trajectory_context",
+                message=(
+                    f"Executing execute artifact on {context_label} context: {name} "
+                    f"(job={artifact.job_id or 'unknown'})"
+                ),
+                payload=snapshot(),
+            )
+        )
+
+        exec_result = await run_loaded_execute_artifact(
+            artifact,
+            pause_checker=lambda: bool(state.trajectory_paused),
+            on_progress=_progress_callback,
+        )
+
+        report = {
+            "run_id": run_id,
+            "status": "completed",
+            "started_at": started_at,
+            "finished_at": time.time(),
+            "duration_sec": round(time.time() - started_at, 6),
+            "name": name,
+            "execution_context": context,
+            "transport_mode": transport_mode,
+            "artifact_job_id": artifact_job_id,
+            "artifact": {
+                "job_id": artifact.job_id,
+                "file_path": artifact.file_path,
+                "schema_version": artifact.schema_version,
+                "point_count": len(artifact.points),
+                "total_duration_sec": artifact.total_duration_sec,
+            },
+            "executor_result": exec_result,
+        }
+        report_path = _save_execution_report(report)
+
+        state.trajectory_running = False
+        state.trajectory_paused = False
+        state.trajectory_name = None
+        state.execution_context = "simulated"
+        await broadcast(
+            EventMessage(
+                type="trajectory_completed",
+                message=(
+                    f"{context_label} Trajectory {name} completed successfully "
+                    f"(transport={exec_result.get('transport')}, acks={exec_result.get('ack_count')}, report={report_path.name})"
+                ),
+                payload=snapshot(),
+            )
+        )
+    except asyncio.CancelledError:
+        _save_execution_report(
+            {
+                "run_id": run_id,
+                "status": "cancelled",
+                "started_at": started_at,
+                "finished_at": time.time(),
+                "duration_sec": round(time.time() - started_at, 6),
+                "name": name,
+                "execution_context": context,
+                "transport_mode": transport_mode,
+                "artifact_job_id": artifact_job_id,
+                "artifact": {
+                    "job_id": artifact.job_id,
+                    "file_path": artifact.file_path,
+                    "schema_version": artifact.schema_version,
+                    "point_count": len(artifact.points),
+                    "total_duration_sec": artifact.total_duration_sec,
+                },
+                "executor_result": exec_result,
+            }
+        )
+        state.trajectory_running = False
+        state.trajectory_paused = False
+        state.trajectory_name = None
+        state.trajectory_progress = 0.0
+        state.execution_context = "simulated"
+        await broadcast(
+            EventMessage(
+                type="trajectory_stopped",
+                message=f"{context_label} Trajectory stopped by user",
+                payload=snapshot(),
+            )
+        )
+        raise
+    except Exception as exc:
+        report_path = _save_execution_report(
+            {
+                "run_id": run_id,
+                "status": "failed",
+                "started_at": started_at,
+                "finished_at": time.time(),
+                "duration_sec": round(time.time() - started_at, 6),
+                "name": name,
+                "execution_context": context,
+                "transport_mode": transport_mode,
+                "artifact_job_id": artifact_job_id,
+                "artifact": {
+                    "job_id": artifact.job_id,
+                    "file_path": artifact.file_path,
+                    "schema_version": artifact.schema_version,
+                    "point_count": len(artifact.points),
+                    "total_duration_sec": artifact.total_duration_sec,
+                },
+                "executor_result": exec_result,
+                "error": str(exc),
+            }
+        )
+        state.trajectory_running = False
+        state.trajectory_paused = False
+        state.trajectory_name = None
+        state.trajectory_progress = 0.0
+        state.execution_context = "simulated"
+        await broadcast(
+            EventMessage(
+                type="trajectory_failed",
+                message=f"{context_label} Trajectory failed: {exc} (report={report_path.name})",
+                payload=snapshot(),
+            )
+        )
+        raise
+
+
 @app.get("/health")
 async def health() -> dict:
     return {"ok": True, "service": "dexter-middleware"}
@@ -2096,6 +2333,29 @@ async def execute_trajectory(
         execution_context = "hardware"
     elif gazebo_status.running:
         execution_context = "gazebo"
+
+    transport_mode = _trajectory_execute_transport_mode()
+    if transport_mode not in {"", "dry_run", "none", "noop"} and execution_context != "hardware":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Execution transport '{transport_mode}' requires active hardware session. "
+                "Start /ros/hardware/start first, or set DEXTER_TRAJECTORY_EXECUTE_TRANSPORT=dry_run."
+            ),
+        )
+
+    loaded_artifact: LoadedExecuteArtifact | None = None
+    run_id = f"exec_{uuid.uuid4().hex[:12]}"
+    if isinstance(precheck.get("artifact"), dict) and bool(precheck["artifact"].get("ok")):
+        artifact_meta = precheck["artifact"]
+        if str(artifact_meta.get("backend") or "") == "native":
+            execute_file = artifact_meta.get("execute_file")
+            if not isinstance(execute_file, str) or not execute_file.strip():
+                raise HTTPException(status_code=422, detail="Native execute artifact file is missing")
+            try:
+                loaded_artifact = load_execute_artifact(Path(execute_file), fallback_duration_sec=req.duration_sec)
+            except ExecuteArtifactError as exc:
+                raise HTTPException(status_code=422, detail=f"Execute artifact invalid: {exc}") from exc
     
     state.trajectory_running = True
     state.trajectory_paused = False
@@ -2106,7 +2366,18 @@ async def execute_trajectory(
     else:
         state.trajectory_name = req.name
     state.trajectory_progress = 0.0
-    state.worker_task = asyncio.create_task(_run_trajectory(req.name, req.duration_sec, context=execution_context))
+    if loaded_artifact is not None:
+        state.worker_task = asyncio.create_task(
+            _run_execute_artifact_trajectory(
+                name=req.name,
+                artifact=loaded_artifact,
+                context=execution_context,
+                run_id=run_id,
+                artifact_job_id=precheck.get("artifact_job_id"),
+            )
+        )
+    else:
+        state.worker_task = asyncio.create_task(_run_trajectory(req.name, req.duration_sec, context=execution_context))
 
     await broadcast(
         EventMessage(
@@ -2125,6 +2396,7 @@ async def execute_trajectory(
             "backend": precheck["artifact"]["backend"],
             "artifact_schema_reported": precheck["artifact"]["artifact_schema_reported"],
         }
+    payload["execution_run_id"] = run_id if loaded_artifact is not None else None
     return payload
 
 
@@ -2137,6 +2409,26 @@ async def trajectory_execute_precheck(
         artifact_job_id=artifact_job_id,
         artifact_strict=artifact_strict,
     )
+
+
+@app.get("/trajectory/execute/reports")
+async def trajectory_execute_reports(
+    limit: int = 20,
+    artifact_job_id: str | None = None,
+) -> dict[str, Any]:
+    rows = _list_execution_reports(limit=limit, artifact_job_id=artifact_job_id)
+    return {
+        "count": len(rows),
+        "reports": rows,
+    }
+
+
+@app.get("/trajectory/execute/reports/{run_id}")
+async def trajectory_execute_report_detail(run_id: str) -> dict[str, Any]:
+    row = _load_execution_report(run_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Execution report not found: {run_id}")
+    return row
 
 
 @app.post("/trajectory/pause")

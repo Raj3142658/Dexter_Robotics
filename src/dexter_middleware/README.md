@@ -58,6 +58,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 - `GET /trajectory/download/{job_id}`
 - `GET /trajectory/artifacts/validate/{job_id}`
 - `GET /trajectory/execute/precheck`
+- `GET /trajectory/execute/reports`
+- `GET /trajectory/execute/reports/{run_id}`
 
 Backend selection:
 
@@ -97,6 +99,54 @@ Execution precheck dry-run:
 
 - `GET /trajectory/execute/precheck` returns readiness and guard diagnostics without starting motion.
 - Supports the same optional query params: `artifact_job_id` and `artifact_strict`.
+
+Native execute artifact runtime:
+
+- When `POST /trajectory/execute` is called with `artifact_job_id` for a native job, middleware now loads the job's `execute.yaml` and runs time-based interpolation from artifact points.
+- If no valid artifact is selected, middleware falls back to the legacy simulated duration flow.
+
+Execution transport environment variables:
+
+- `DEXTER_TRAJECTORY_EXECUTE_TRANSPORT`:
+- `dry_run` (default): validate and run timing loop without sending hardware packets.
+- `udp_json`: send waypoint packets as JSON over UDP.
+- `ros2_topic`: publish `std_msgs/Float64MultiArray` commands to ESP topic path.
+- `DEXTER_TRAJECTORY_EXECUTE_HZ` (default `50`): control loop frequency.
+- `DEXTER_TRAJECTORY_EXECUTE_UDP_HOST` (default `127.0.0.1`): UDP target host.
+- `DEXTER_TRAJECTORY_EXECUTE_UDP_PORT` (default `5005`): UDP target port.
+- `DEXTER_TRAJECTORY_EXECUTE_UDP_TIMEOUT_SEC` (default `0.1`): UDP read timeout.
+- `DEXTER_TRAJECTORY_EXECUTE_UDP_REQUIRE_ACK` (default `false`): fail execute when ack is missing or invalid.
+- `DEXTER_TRAJECTORY_EXECUTE_UDP_RETRIES` (default `0`): resend count for transient UDP failures.
+- `DEXTER_TRAJECTORY_EXECUTE_EMIT_STOP` (default `true`): emit `trajectory_stop` packet when execution completes/fails/cancels.
+- `DEXTER_TRAJECTORY_EXECUTE_MAX_STEP_RAD` (default `0.6`): max allowed waypoint-to-waypoint joint delta for artifact validation.
+- `DEXTER_TRAJECTORY_EXECUTE_LIMIT_MARGIN_RAD` (default `0.05`): tolerance margin used during joint-limit validation.
+- `DEXTER_TRAJECTORY_EXECUTE_ROS_TOPIC` (default `/esp32/joint_commands`): target topic for `ros2_topic` transport.
+- `DEXTER_TRAJECTORY_EXECUTE_ROS_QUEUE_DEPTH` (default `10`): ROS publisher queue depth.
+- `DEXTER_TRAJECTORY_EXECUTE_ROS_HEALTH_CHECK` (default `true`): subscribe to health topic and evaluate link status.
+- `DEXTER_TRAJECTORY_EXECUTE_ROS_HEALTH_TOPIC` (default `/esp32/link_health`): health topic path.
+- `DEXTER_TRAJECTORY_EXECUTE_ROS_REQUIRE_HEALTH` (default `true`): require fresh health before each publish.
+- `DEXTER_TRAJECTORY_EXECUTE_ROS_HEALTH_TIMEOUT_SEC` (default `1.0`): stale timeout for health freshness.
+- `DEXTER_TRAJECTORY_EXECUTION_WATCHDOG_ENABLED` (default `true`): enforce runtime session watchdog during execute.
+- `DEXTER_TRAJECTORY_EXECUTION_WATCHDOG_INTERVAL_SEC` (default `0.25`): watchdog check cadence.
+
+Transport safety gate:
+
+- Non-dry-run transport modes are rejected unless the hardware session is active.
+- This prevents accidental live packet streaming while only simulation/full-stack state is active.
+
+ESP firmware compatibility note:
+
+- Middleware now includes monotonically increasing `seq` in each transport packet.
+- In `ros2_topic` mode, middleware publishes command vectors as 15 values: 14 joint targets + trailing sequence number.
+- This aligns with ESP stale-sequence protections used in `esp32_firmware_wireless.ino` command handling.
+
+Execution run audit reports:
+
+- Artifact-backed executions now persist run reports under:
+- `.runtime/trajectory_native/execution_reports/exec_<id>.json`
+- Reports include: status (`completed|failed|cancelled`), timing, context, transport, artifact metadata, executor stats, and error detail (if any).
+- `POST /trajectory/execute` returns `execution_run_id` for artifact-backed runs.
+- Use `GET /trajectory/execute/reports` and `GET /trajectory/execute/reports/{run_id}` to inspect outcomes during QA/hardware validation.
 
 Bridge helper scripts:
 

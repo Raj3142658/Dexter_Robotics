@@ -38,7 +38,7 @@
 #define MIN_MOTION_DURATION_MS  20
 #define PWM_THRESHOLD_US        60
 #define BYPASS_THRESHOLD_US     90
-#define LOOP_PERIOD_US          2000      // 500 Hz
+#define LOOP_PERIOD_US          2000        // 500 Hz
 #define SERVO_FREQ              50
 #define COMMAND_TIMEOUT_MS      200
 #define STATE_PUB_PERIOD_MS     10        // 100 Hz
@@ -58,11 +58,11 @@
 
 // =========================== JOINT LIMITS ===================================
 const float JOINT_MIN[NUM_JOINTS] = {-1.57,-1.57,-1.57,-1.57,-1.57,-1.57, 0.0, -1.57,-1.57,-1.57,-1.57,-1.57,-1.57, 0.0};
-const float JOINT_MAX[NUM_JOINTS] = { 1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 6.28318, 1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 3.14159};
+const float JOINT_MAX[NUM_JOINTS] = { 1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 3.14159, 1.57, 1.57, 1.57, 1.57, 1.57, 1.57, 3.14159};
 
 // ====================== 🏠 INIT PWM (Home Position + Calibration) ==========
 const uint16_t INIT_PWM[NUM_JOINTS] = {
-  1545, 1800, 1600, 1750, 1450, 1850, 1000,   // Left arm (0-5) + gripper (6 = 180° closed)
+  1545, 1800, 1600, 1750, 1450, 1850, 500,   // Left arm (0-5) + gripper (6 = 180° closed)
   1500, 1500, 1500, 1500, 1500, 1500, 500   // Right arm (7-12) + gripper (13 = 0° open)
 };
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MW_URL="${DEXTER_MIDDLEWARE_URL:-http://127.0.0.1:8084}"
+MW_URL="${DEXTER_MIDDLEWARE_URL:-http://127.0.0.1:8080}"
 BRIDGE_URL="${DEXTER_TRAJECTORY_BRIDGE_URL:-http://127.0.0.1:8765}"
 
 echo "[CHECK] Middleware: ${MW_URL}"

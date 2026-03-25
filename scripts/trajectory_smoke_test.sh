@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MW_URL="${DEXTER_MIDDLEWARE_URL:-http://127.0.0.1:8084}"
+MW_URL="${DEXTER_MIDDLEWARE_URL:-http://127.0.0.1:8080}"
 TMP_DIR="${TMPDIR:-/tmp}"
 OUT_FILE="${TMP_DIR}/dexter_trajectory_smoke_$$.yaml"
 
@@ -11,12 +11,15 @@ curl -sS -m 8 -X POST "${MW_URL}/trajectory/backend/start" >/dev/null
 echo "[2/22] Submit safe generate request"
 GEN_JSON="$(curl -sS -m 10 -X POST "${MW_URL}/trajectory/generate" \
   -H 'Content-Type: application/json' \
-  --data '{"config":{"arm":"left","surface":{"normal":[0,0,1],"tool_tilt_deg":0},"reference_point":{"x":0.0,"y":0.0,"z":0.2},"shape":{"type":"circle","radius":0.03,"n_points":32},"execution":{"eef_step":0.01,"jump_threshold":0.0,"max_velocity_scaling":0.2,"max_acceleration_scaling":0.1,"avoid_collisions":true,"time_param_method":"totg"}}}')"
+  --data '{"config":{"trajectory_name":"smoke_bridge_circle","arm":"left","surface":{"normal":[0,0,1],"tool_tilt_deg":0},"reference_point":{"x":0.0,"y":0.0,"z":0.2},"shape":{"type":"circle","radius":0.03,"n_points":32},"execution":{"eef_step":0.01,"jump_threshold":0.0,"max_velocity_scaling":0.2,"max_acceleration_scaling":0.1,"avoid_collisions":true,"time_param_method":"totg"}}}')"
 
 JOB_ID="$(python3 - <<'PY' "$GEN_JSON"
 import json,sys
 obj=json.loads(sys.argv[1])
-print(obj['job_id'])
+job_id=obj.get('job_id')
+if not job_id:
+  raise SystemExit(f"generate did not return job_id: {obj}")
+print(job_id)
 PY
 )"
 
@@ -93,12 +96,15 @@ curl -sS -m 8 -X POST "${MW_URL}/trajectory/backend/stop" >/dev/null
 echo "[11/22] Generate while bridge is offline (native fallback)"
 NATIVE_GEN_JSON="$(curl -sS -m 10 -X POST "${MW_URL}/trajectory/generate" \
   -H 'Content-Type: application/json' \
-  --data '{"config":{"arm":"left","surface":{"normal":[0,0,1],"tool_tilt_deg":0},"reference_point":{"x":0.0,"y":0.0,"z":0.2},"shape":{"type":"line","length":0.08,"n_points":16},"execution":{"eef_step":0.01,"jump_threshold":0.0,"max_velocity_scaling":0.2,"max_acceleration_scaling":0.1,"avoid_collisions":true,"time_param_method":"totg"}}}')"
+  --data '{"config":{"trajectory_name":"smoke_native_line","arm":"left","surface":{"normal":[0,0,1],"tool_tilt_deg":0},"reference_point":{"x":-0.05,"y":0.0,"z":0.24},"shape":{"type":"line","length":0.05,"n_points":2},"execution":{"eef_step":0.01,"jump_threshold":0.0,"max_velocity_scaling":0.2,"max_acceleration_scaling":0.1,"avoid_collisions":true,"time_param_method":"totg"},"joint_trajectory":{"joint_names":["j1l","j2l","j3l","j4l","j5l","j6l","gripper_l_servo","j1r","j2r","j3r","j4r","j5r","j6r","gripper_r_servo"],"points":[{"time_from_start":0.0,"positions":[0,0,0,0,0,0,0,0,0,0,0,0,0,0]},{"time_from_start":1.0,"positions":[0.1,0.05,0,0,0,0,0,0.1,0.05,0,0,0,0,0]}]}}}')"
 
 NATIVE_JOB_ID="$(python3 - <<'PY' "$NATIVE_GEN_JSON"
 import json,sys
 obj=json.loads(sys.argv[1])
-print(obj['job_id'])
+job_id=obj.get('job_id')
+if not job_id:
+  raise SystemExit(f"native generate did not return job_id: {obj}")
+print(job_id)
 PY
 )"
 echo "  - native job_id: $NATIVE_JOB_ID"
@@ -145,6 +151,10 @@ assert obj.get('backend') == 'native', obj
 assert obj.get('strict') is True, obj
 print('  - native validator ok')
 PY
+
+echo "[15.5/22] Reset robot state for deterministic precheck"
+curl -sS -m 8 -X POST "${MW_URL}/disable" >/dev/null || true
+curl -sS -m 8 -X POST "${MW_URL}/disconnect" >/dev/null || true
 
 echo "[16/22] Precheck reports not ready before connect"
 PRECHECK_BEFORE_JSON="$(curl -sS -m 10 "${MW_URL}/trajectory/execute/precheck?artifact_job_id=${NATIVE_JOB_ID}&artifact_strict=true")"

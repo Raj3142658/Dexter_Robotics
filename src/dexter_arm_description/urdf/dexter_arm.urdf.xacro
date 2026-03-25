@@ -290,7 +290,7 @@
         <parent link="l6l_rail" />
         <child link="l6l_finger_slider" />
         <axis xyz="0 0 1" />
-        <limit lower="-0.04" upper="0.0" effort="1.0" velocity="0.1" />
+        <limit lower="-0.02" upper="0.0" effort="1.0" velocity="0.1" />
     </joint>
 
     <!-- LEFT GRIPPER - Finger (actual mesh) -->
@@ -330,7 +330,7 @@
         <parent link="l6l_rail" />
         <child link="l6l_finger2_slider" />
         <axis xyz="0 0 1" />
-        <limit lower="-0.04" upper="0.0" effort="1.0" velocity="0.1" />
+        <limit lower="-0.02" upper="0.0" effort="1.0" velocity="0.1" />
     </joint>
 
     <!-- LEFT GRIPPER - Second Finger (actual mesh) -->
@@ -654,7 +654,7 @@
         <parent link="l6r_rail" />
         <child link="l6r_finger_slider" />
         <axis xyz="0 0 1" />
-        <limit lower="-0.022" upper="0.0" effort="10.0" velocity="0.1" />
+        <limit lower="-0.020" upper="0.0" effort="10.0" velocity="0.1" />
     </joint>
 
     <!-- RIGHT GRIPPER - Finger (actual mesh) -->
@@ -700,7 +700,7 @@
         <parent link="l6r_rail" />
         <child link="l6r_finger2_slider" />
         <axis xyz="0 0 1" />
-        <limit lower="-0.022" upper="0.022" effort="10.0" velocity="0.1" />
+        <limit lower="0" upper="0.020" effort="10.0" velocity="0.1" />
     </joint>
 
     <!-- RIGHT GRIPPER - Second Finger (actual mesh) -->
