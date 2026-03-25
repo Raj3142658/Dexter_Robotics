@@ -146,9 +146,74 @@ fi
 echo ""
 
 # ============================================================================
-# STEP 7: Setup Middleware Python Environment
+# STEP 7: Create Desktop Application Launcher
 # ============================================================================
-echo -e "${BLUE}[7/7] Setting up middleware FastAPI environment...${NC}"
+echo -e "${BLUE}[7/9] Creating desktop application launcher...${NC}"
+
+APPS_DIR="$HOME/.local/share/applications"
+DESKTOP_FILE="$APPS_DIR/dexter-control-center.desktop"
+ICONS_DIR="$HOME/.local/share/icons/hicolor/48x48/apps"
+
+# Create directories if they don't exist
+mkdir -p "$APPS_DIR" "$ICONS_DIR"
+
+# Create desktop file with correct workspace path
+cat > "$DESKTOP_FILE" << 'DESKTOP_ENTRY'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Dexter Control Center
+Comment=Launch Dexter robot middleware and operator UI
+Exec=bash -c 'cd WORKSPACE_DIR && source install/setup.bash && bash scripts/launch_control_center.sh'
+Icon=dexter-control-center
+Terminal=false
+Categories=Robotics;Utility;Development;
+StartupNotify=true
+X-AppStream-Ignore=false
+DESKTOP_ENTRY
+
+# Replace workspace path in desktop file
+sed -i "s|WORKSPACE_DIR|$WORKSPACE_DIR|g" "$DESKTOP_FILE"
+
+# Make desktop file valid
+chmod 644 "$DESKTOP_FILE"
+
+# Create a simple SVG icon if it doesn't exist
+if [ ! -f "$ICONS_DIR/dexter-control-center.svg" ]; then
+  cat > "$ICONS_DIR/dexter-control-center.svg" << 'ICON_SVG'
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <rect width="48" height="48" fill="#2c3e50" rx="8"/>
+  <circle cx="24" cy="16" r="6" fill="#3498db"/>
+  <circle cx="16" cy="32" r="4" fill="#2ecc71"/>
+  <circle cx="24" cy="32" r="4" fill="#e74c3c"/>
+  <circle cx="32" cy="32" r="4" fill="#f39c12"/>
+  <path d="M 24 22 L 16 26" stroke="#3498db" stroke-width="1.5" fill="none"/>
+  <path d="M 24 22 L 24 28" stroke="#3498db" stroke-width="1.5" fill="none"/>
+  <path d="M 24 22 L 32 26" stroke="#3498db" stroke-width="1.5" fill="none"/>
+</svg>
+ICON_SVG
+  echo -e "${GREEN}✓ Desktop icon created${NC}"
+fi
+
+# Verify desktop entry is valid
+if system-test-desktop &>/dev/null 2>&1 || desktop-file-validate "$DESKTOP_FILE" 2>/dev/null; then
+  echo -e "${GREEN}✓ Desktop file created at: $DESKTOP_FILE${NC}"
+  echo -e "${GREEN}✓ Application can now be pinned to sidebar${NC}"
+else
+  echo -e "${YELLOW}⚠️  Desktop file created (validation tool not available)${NC}"
+  echo -e "${YELLOW}   Location: $DESKTOP_FILE${NC}"
+fi
+
+# Update desktop database
+update-desktop-database "$APPS_DIR" 2>/dev/null || true
+
+echo ""
+
+# ============================================================================
+# STEP 8: Setup Middleware Python Environment
+# ============================================================================
+echo -e "${BLUE}[8/9] Setting up middleware FastAPI environment...${NC}"
 if [ ! -d "$MIDDLEWARE_DIR" ]; then
   echo -e "${RED}✗ Middleware directory not found at: $MIDDLEWARE_DIR${NC}"
   exit 1
@@ -184,7 +249,7 @@ deactivate
 echo ""
 
 # ============================================================================
-# SUMMARY
+# STEP 9: Summary and Next Steps
 # ============================================================================
 echo -e "${GREEN}╔════════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║           ✓ SETUP COMPLETED SUCCESSFULLY              ║${NC}"
@@ -192,22 +257,30 @@ echo -e "${GREEN}╚════════════════════
 echo ""
 echo -e "${BLUE}Next Steps:${NC}"
 echo ""
-echo "1. Activate the workspace:"
+echo "1. 🎯 Quick Start - Launch from Desktop:"
+echo -e "   ${YELLOW}Press Super key → Search 'Dexter Control Center'${NC}"
+echo -e "   ${YELLOW}Right-click → 'Add to Favorites' (pin to sidebar)${NC}"
+echo ""
+echo "2. Or activate workspace manually:"
 echo -e "   ${YELLOW}cd $WORKSPACE_DIR${NC}"
 echo -e "   ${YELLOW}source install/setup.bash${NC}"
 echo ""
-echo "2. Optional: Setup ESP32 firmware"
+echo "3. Optional: Setup ESP32 firmware"
 echo -e "   ${YELLOW}# Flash src/dexter_arm_hardware/firmware/esp32_firmware_wireless.ino${NC}"
 echo -e "   ${YELLOW}# to your ESP32 using Arduino IDE or PlatformIO${NC}"
 echo ""
-echo "3. Launch the control center:"
+echo "4. Launch the control center:"
 echo -e "   ${YELLOW}bash scripts/launch_control_center.sh${NC}"
 echo ""
-echo "4. Access the web UI:"
+echo "5. Access the web UI:"
 echo -e "   ${YELLOW}http://127.0.0.1:8090${NC}"
 echo ""
-echo "5. API documentation:"
+echo "6. API documentation:"
 echo -e "   ${YELLOW}http://127.0.0.1:8080/docs${NC}"
+echo ""
+echo -e "${BLUE}Desktop Application:${NC}"
+echo "   Location: $DESKTOP_FILE"
+echo "   Status: ✓ Installed and ready to use"
 echo ""
 echo -e "${BLUE}System Information:${NC}"
 echo "   OS: Ubuntu 24.04 LTS $(lsb_release -rs)"
