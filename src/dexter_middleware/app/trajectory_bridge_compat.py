@@ -149,11 +149,13 @@ def _render_yaml_document(value: dict[str, Any]) -> str:
 
 
 def _artifact_payload(job_id: str, config: dict[str, Any], shape: dict[str, Any], waypoints: int) -> dict[str, Any]:
+    trajectory_name = str(config.get("trajectory_name") or config.get("name") or "").strip()
     return {
         "schema_version": ARTIFACT_SCHEMA_VERSION,
         "kind": "dexter_trajectory_plan",
         "job": {
             "id": job_id,
+            "trajectory_name": trajectory_name or None,
             "backend": "bridge",
             "created_at": _iso_utc_now(),
         },
@@ -237,6 +239,7 @@ async def generate(config: dict[str, Any]) -> dict[str, Any]:
 
     shape = config.get("shape") if isinstance(config.get("shape"), dict) else {}
     waypoints = _safe_waypoint_count(shape)
+    trajectory_name = str(config.get("trajectory_name") or config.get("name") or "").strip()
 
     job_id = uuid.uuid4().hex[:12]
     output_file = _write_job_output(job_id, config, shape, waypoints)
@@ -245,6 +248,7 @@ async def generate(config: dict[str, Any]) -> dict[str, Any]:
         "job_id": job_id,
         "status": "done",
         "output_file": str(output_file),
+        "trajectory_name": trajectory_name or None,
         "duration": 0.05,
         "waypoints": waypoints,
         "fraction": 100.0,
@@ -262,6 +266,7 @@ async def generate(config: dict[str, Any]) -> dict[str, Any]:
         "job_id": job_id,
         "status": "queued",
         "output_file": str(output_file),
+        "trajectory_name": trajectory_name or None,
         "backend": "bridge",
         "artifact_schema": ARTIFACT_SCHEMA_VERSION,
         "artifact_format": "yaml",
