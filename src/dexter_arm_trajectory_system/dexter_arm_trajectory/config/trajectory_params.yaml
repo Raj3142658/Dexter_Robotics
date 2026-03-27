@@ -1,0 +1,49 @@
+/**:
+  ros__parameters:
+    # Trajectory Manager Configuration
+
+    # Planning group name (from MoveIt SRDF)
+    planning_group: "left_arm"
+
+    # End effector link name (for TCP visualization)
+    end_effector_link: "tool0_left"
+
+    # Joint trajectory controller name - REMOVED (Auto-detected per joint)
+    # controller_name: "left_arm_controller"
+
+    # Storage directory for saved trajectories
+    trajectory_storage_dir: "~/.ros/dexter_trajectories"
+
+    # Canonical safety-zone configuration shared by teach and shape flows
+    safety_config_file: ""
+
+    # MoveIt topics
+    moveit_display_planned_path_topic: "/display_planned_path"
+
+    # Time parameterization algorithm
+    # Options: "totg" (Time-Optimal Trajectory Generation) or "iptp" (Iterative Parabolic Time Parameterization)
+    time_parameterization_algorithm: "totg"
+
+    # Velocity scaling factor for compiled trajectories (0.0 to 1.0)
+    velocity_scaling: 0.8
+
+    # Acceleration scaling factor for compiled trajectories (0.0 to 1.0)
+    acceleration_scaling: 0.8
+
+    # Segment concatenation: remove duplicate boundary points
+    remove_duplicate_boundaries: true
+
+    # Minimum time between waypoints (seconds)
+    min_waypoint_time: 0.01
+
+    # TCP path visualization
+    # Note: nested params should be flattened or handled carefully in code if using declare_parameters
+    # For now, keeping flat parameters for simplicity where possible, but nested is allowed
+    tcp_marker_line_width: 0.003
+    tcp_marker_frame_id: "world"
+    export_csv: false
+    csv_output_dir: "~/.ros/dexter_trajectories/tcp_paths"
+
+    # Auto-save buffer before compile (safety backup)
+    auto_backup: true
+    backup_dir: "~/.ros/dexter_trajectories/backups"

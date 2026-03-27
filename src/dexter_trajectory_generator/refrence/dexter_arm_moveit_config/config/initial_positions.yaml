@@ -1,0 +1,22 @@
+# Default initial positions for dexter_arm's ros2_control fake system
+
+initial_positions:
+  # Left Arm
+  j1l: 0.0
+  j2l: 0.0
+  j3l: 0.0
+  j4l: 0.0
+  j5l: 0.0
+  j6l: 0.0
+  j7l1: 0.0
+  j7l2: 0.0
+
+  # Right Arm
+  j1r: 0.0
+  j2r: 0.0
+  j3r: 0.0
+  j4r: 0.0
+  j5r: 0.0
+  j6r: 0.0
+  j7r1: 0.0
+  j7r2: 0.0

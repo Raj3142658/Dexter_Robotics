@@ -1,0 +1,7 @@
+# Request: inject an externally-built JointTrajectory into the manager
+trajectory_msgs/JointTrajectory trajectory
+string description
+---
+# Response
+bool success
+string message

@@ -1,0 +1,6 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="dexter_arm">
+    <!-- Include the URDF from dexter_arm_description package -->
+    <!-- MoveIt will load this to get the robot geometry -->
+    <xacro:include filename="$(find dexter_arm_description)/urdf/dexter_arm.urdf.xacro" />
+</robot>

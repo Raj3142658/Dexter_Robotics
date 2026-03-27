@@ -37,9 +37,27 @@ def generate_launch_description():
             description="Load MoveIt move_group"
         )
     )
+
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "gazebo_gui",
+            default_value="true",
+            description="Start Gazebo GUI (false for headless server mode)",
+        )
+    )
+
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "load_trajectory_system",
+            default_value="true",
+            description="Start dexter_arm_trajectory manager + shape generator"
+        )
+    )
     
     use_rviz = LaunchConfiguration("use_rviz")
     load_moveit = LaunchConfiguration("load_moveit")
+    load_trajectory_system = LaunchConfiguration("load_trajectory_system")
+    gazebo_gui = LaunchConfiguration("gazebo_gui")
     
     # MoveIt configuration
     moveit_config = (
@@ -60,7 +78,19 @@ def generate_launch_description():
                 "launch",
                 "gazebo.launch.py"
             ])
-        )
+        ),
+        launch_arguments={"gui": gazebo_gui}.items(),
+    )
+
+    trajectory_system = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution([
+                FindPackageShare("dexter_arm_trajectory"),
+                "launch",
+                "trajectory_system.launch.py",
+            ])
+        ),
+        condition=IfCondition(load_trajectory_system),
     )
     
     # Spawn arm controllers after Gazebo stabilizes
@@ -124,6 +154,7 @@ def generate_launch_description():
     return LaunchDescription(
         declared_arguments + [
             gazebo_launch,
+            trajectory_system,
             spawn_arm_controllers,
             move_group,
             rviz

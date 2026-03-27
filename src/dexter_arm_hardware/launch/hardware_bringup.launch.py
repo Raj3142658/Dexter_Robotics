@@ -38,10 +38,19 @@ def generate_launch_description():
             description="Load MoveIt move_group"
         )
     )
+
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "load_trajectory_system",
+            default_value="true",
+            description="Start dexter_arm_trajectory manager + shape generator"
+        )
+    )
     
     # Get configurations
     use_rviz = LaunchConfiguration("use_rviz")
     load_moveit = LaunchConfiguration("load_moveit")
+    load_trajectory_system = LaunchConfiguration("load_trajectory_system")
     
     # Build MoveIt configuration
     moveit_config = (
@@ -158,12 +167,38 @@ def generate_launch_description():
             )
         ],
     )
+
+    trajectory_params = PathJoinSubstitution([
+        FindPackageShare("dexter_arm_trajectory"),
+        "config",
+        "trajectory_params.yaml",
+    ])
+
+    trajectory_manager = Node(
+        package="dexter_arm_trajectory",
+        executable="trajectory_manager",
+        name="trajectory_manager",
+        output="screen",
+        parameters=[trajectory_params],
+        condition=IfCondition(load_trajectory_system),
+    )
+
+    shape_trajectory = Node(
+        package="dexter_arm_trajectory",
+        executable="shape_trajectory",
+        name="shape_trajectory_node",
+        output="screen",
+        parameters=[trajectory_params],
+        condition=IfCondition(load_trajectory_system),
+    )
     
     return LaunchDescription(
         declared_arguments + [
             control_node,
             robot_state_pub_node,
             static_tf,
+            trajectory_manager,
+            shape_trajectory,
             spawn_controllers,
             move_group_node,
             rviz_node,

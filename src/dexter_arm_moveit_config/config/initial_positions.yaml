@@ -10,8 +10,8 @@ initial_positions:
   j4l: 0.0
   j5l: 0.0
   j6l: 0.0
-  j7l1: 0.0  # Gripper finger 1 (prismatic - starts open)
-  j7l2: 0.0  # Gripper finger 2 (prismatic - starts open)
+  j7l1: -0.025  # Left gripper open pose
+  j7l2: 0.0     # Left gripper open pose
 
   # Right Arm
   j1r: 0.0
@@ -20,5 +20,5 @@ initial_positions:
   j4r: 0.0
   j5r: 0.0
   j6r: 0.0
-  j7r1: 0.0  # Gripper finger 1 (prismatic - starts open)
-  j7r2: 0.0  # Gripper finger 2 (prismatic - starts open)
+  j7r1: 0.0     # Right gripper open pose
+  j7r2: -0.025  # Right gripper open pose

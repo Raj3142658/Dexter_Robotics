@@ -1,0 +1,6 @@
+string filename
+string description
+---
+bool success
+string message
+string full_path

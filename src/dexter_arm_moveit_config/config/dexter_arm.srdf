@@ -12,39 +12,38 @@
     <!--CHAINS: When a chain is specified, all the links along the chain (including endpoints) are included in the group. Additionally, all the joints that are parents to included links are also included. This means that joints along the chain and the parent joint of the base link are included in the group-->
     <!--SUBGROUPS: Groups can also be formed by referencing to already defined group names-->
     <group name="left_arm">
-        <joint name="base_joint"/>
         <joint name="j1l"/>
         <joint name="j2l"/>
         <joint name="j3l"/>
         <joint name="j4l"/>
         <joint name="j5l"/>
         <joint name="j6l"/>
+        <joint name="tool0_left_fixed_joint"/>
     </group>
     <group name="right_arm">
-        <joint name="base_joint"/>
         <joint name="j1r"/>
         <joint name="j2r"/>
         <joint name="j3r"/>
         <joint name="j4r"/>
         <joint name="j5r"/>
         <joint name="j6r"/>
+        <joint name="tool0_right_fixed_joint"/>
     </group>
     <group name="both_arm">
-        <joint name="base_joint"/>
         <joint name="j1l"/>
         <joint name="j2l"/>
         <joint name="j3l"/>
         <joint name="j4l"/>
         <joint name="j5l"/>
         <joint name="j6l"/>
-        <joint name="j6l"/>
+        <joint name="tool0_left_fixed_joint"/>
         <joint name="j1r"/>
         <joint name="j2r"/>
         <joint name="j3r"/>
         <joint name="j4r"/>
         <joint name="j5r"/>
         <joint name="j6r"/>
-        <joint name="j6r"/>
+        <joint name="tool0_right_fixed_joint"/>
     </group>
     <group name="left_gripper">
         <joint name="j7l1"/>
@@ -123,38 +122,38 @@
         <joint name="j6r" value="0"/>
     </group_state>
     <group_state name="left_gripper_open" group="left_gripper">
-        <joint name="j7l1" value="0"/>
+        <joint name="j7l1" value="-0.025"/>
         <joint name="j7l2" value="0"/>
     </group_state>
     <group_state name="left_gripper_close" group="left_gripper">
-        <joint name="j7l1" value="-0.02"/>
-        <joint name="j7l2" value="-0.02"/>
+        <joint name="j7l1" value="0"/>
+        <joint name="j7l2" value="-0.025"/>
     </group_state>
     <group_state name="right_gripper_open" group="right_gripper">
         <joint name="j7r1" value="0"/>
-        <joint name="j7r2" value="0"/>
+        <joint name="j7r2" value="-0.025"/>
     </group_state>
     <group_state name="right_gripper_close" group="right_gripper">
-        <joint name="j7r1" value="-0.020"/>
-        <joint name="j7r2" value="0.020"/>
+        <joint name="j7r1" value="-0.025"/>
+        <joint name="j7r2" value="0"/>
     </group_state>
 
 
     <group_state name="both_grippers_open" group="both_grippers">
-        <joint name="j7l1" value="0"/>
+        <joint name="j7l1" value="-0.025"/>
         <joint name="j7l2" value="0"/>
         <joint name="j7r1" value="0"/>
-        <joint name="j7r2" value="0"/>
+        <joint name="j7r2" value="-0.025"/>
     </group_state>
     <group_state name="both_grippers_close" group="both_grippers">
-        <joint name="j7l1" value="-0.04"/>
-        <joint name="j7l2" value="-0.04"/>
-        <joint name="j7r1" value="-0.022"/>
-        <joint name="j7r2" value="0.022"/>
+        <joint name="j7l1" value="0"/>
+        <joint name="j7l2" value="-0.025"/>
+        <joint name="j7r1" value="-0.025"/>
+        <joint name="j7r2" value="0"/>
     </group_state>
     <!--END EFFECTOR: Purpose: Represent information about an end effector.-->
-    <end_effector name="left_ee" parent_link="tool0_left" group="left_arm" parent_group="left_arm"/>
-    <end_effector name="right_ee" parent_link="tool0_right" group="right_arm" parent_group="right_arm"/>
+    <end_effector name="left_ee" parent_link="tool0_left" group="left_gripper" parent_group="left_arm"/>
+    <end_effector name="right_ee" parent_link="tool0_right" group="right_gripper" parent_group="right_arm"/>
     <!--DISABLE COLLISIONS: By default it is assumed that any link of the robot could potentially come into collision with any other link in the robot. This tag disables collision checking between a specified pair of links. -->
     <disable_collisions link1="base_link" link2="l1l" reason="Adjacent"/>
     <disable_collisions link1="base_link" link2="l1r" reason="Adjacent"/>
@@ -193,11 +192,8 @@
     <disable_collisions link1="l4r" link2="l6r" reason="Never"/>
     <disable_collisions link1="l5l" link2="l6l" reason="Adjacent"/>
     <disable_collisions link1="l5r" link2="l6r" reason="Adjacent"/>
-    <disable_collisions link1="l6l_finger" link2="l6l_rail" reason="Adjacent"/>
-    <disable_collisions link1="l6l_finger2" link2="l6l_rail" reason="Adjacent"/>
-    <disable_collisions link1="l6r_finger" link2="l6r_rail" reason="Adjacent"/>
-    <disable_collisions link1="l6r_finger2" link2="l6r_rail" reason="Adjacent"/>
-    <disable_collisions link1="l6r_finger2" link2="l6r_base1" reason="Default"/>
-    <disable_collisions link1="l6r_finger2" link2="l6r" reason="Default"/>
-    <disable_collisions link1="l6r_finger2" link2="tool0_right" reason="Default"/>
+    <disable_collisions link1="l6l" link2="l7l1" reason="Adjacent"/>
+    <disable_collisions link1="l6l" link2="l7l2" reason="Adjacent"/>
+    <disable_collisions link1="l6r" link2="l7r1" reason="Adjacent"/>
+    <disable_collisions link1="l6r" link2="l7r2" reason="Adjacent"/>
 </robot>

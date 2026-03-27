@@ -51,6 +51,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 - `POST /trajectory/backend/start`
 - `POST /trajectory/backend/stop`
 - `POST /trajectory/generate`
+- `POST /trajectory/import`
 - `GET /trajectory/jobs`
 - `GET /trajectory/jobs/{job_id}`
 - `DELETE /trajectory/jobs/{job_id}`
@@ -66,6 +67,19 @@ Backend selection:
 - `DEXTER_TRAJECTORY_BACKEND_MODE=auto` (default): bridge when online, native fallback when bridge is offline.
 - `DEXTER_TRAJECTORY_BACKEND_MODE=bridge`: force bridge-only generation.
 - `DEXTER_TRAJECTORY_BACKEND_MODE=native`: force middleware native generation.
+
+ROS-backed generation (recommended for real hardware):
+
+- `DEXTER_TRAJECTORY_GENERATION_MODE=ros` (default): use `dexter_arm_trajectory` ROS services to compute joint trajectories via MoveIt, then import into native execute14.
+- Requires `ros2 launch dexter_arm_trajectory trajectory_system.launch.py` running (or equivalent) so `/shape_trajectory/generate` + `/trajectory_manager/save` are available.
+- `DEXTER_TRAJECTORY_GENERATION_MODE=native`: keep the placeholder XY waypoint generator (plan-only, no joint points).
+- `DEXTER_TRAJECTORY_ROS_TIMEOUT_SEC` (default `15.0`): service wait/response timeout.
+  - Note: the legacy ROS shape generator operates in the **XZ plane** (y=0). Use `reference_point.x` + `reference_point.z` for positioning.
+
+Teach/repeat mode:
+
+- `DEXTER_TRAJECTORY_TEACH_MODE=ros` (default): route teach capture/compile through `trajectory_manager` services and import the compiled YAML.
+- If ROS services are offline, teach endpoints return HTTP 503 with a hint to start the trajectory system.
 
 Native artifact contract (`backend=native`):
 
@@ -105,12 +119,19 @@ Native execute artifact runtime:
 - When `POST /trajectory/execute` is called with `artifact_job_id` for a native job, middleware now loads the job's `execute.yaml` and runs time-based interpolation from artifact points.
 - If no valid artifact is selected, middleware falls back to the legacy simulated duration flow.
 
+Import JointTrajectory YAML:
+
+- `POST /trajectory/import` accepts `{ "source_path": "/abs/path/to/joint_trajectory.yaml", "name": "optional_name" }`.
+- Creates a **native job** with both plan + execute14 artifacts.
+- Enables legacy teach/shape YAMLs to run through the new execute14 executor.
+
 Execution transport environment variables:
 
 - `DEXTER_TRAJECTORY_EXECUTE_TRANSPORT`:
 - `dry_run` (default): validate and run timing loop without sending hardware packets.
 - `udp_json`: send waypoint packets as JSON over UDP.
 - `ros2_topic`: publish `std_msgs/Float64MultiArray` commands to ESP topic path.
+- `ros2_action`: send `FollowJointTrajectory` goals to ros2_control controllers (Gazebo or hardware).
 - `DEXTER_TRAJECTORY_EXECUTE_HZ` (default `50`): control loop frequency.
 - `DEXTER_TRAJECTORY_EXECUTE_UDP_HOST` (default `127.0.0.1`): UDP target host.
 - `DEXTER_TRAJECTORY_EXECUTE_UDP_PORT` (default `5005`): UDP target port.
@@ -126,6 +147,12 @@ Execution transport environment variables:
 - `DEXTER_TRAJECTORY_EXECUTE_ROS_HEALTH_TOPIC` (default `/esp32/link_health`): health topic path.
 - `DEXTER_TRAJECTORY_EXECUTE_ROS_REQUIRE_HEALTH` (default `true`): require fresh health before each publish.
 - `DEXTER_TRAJECTORY_EXECUTE_ROS_HEALTH_TIMEOUT_SEC` (default `1.0`): stale timeout for health freshness.
+- `DEXTER_TRAJECTORY_EXECUTE_ROS_ACTION_LEFT` (default `left_arm_controller`): controller name for left arm action.
+- `DEXTER_TRAJECTORY_EXECUTE_ROS_ACTION_RIGHT` (default `right_arm_controller`): controller name for right arm action.
+- `DEXTER_TRAJECTORY_EXECUTE_ROS_ACTION_LEFT_GRIPPER` (default `left_arm_gripper`): controller name for left gripper action.
+- `DEXTER_TRAJECTORY_EXECUTE_ROS_ACTION_RIGHT_GRIPPER` (default `right_arm_gripper`): controller name for right gripper action.
+- `DEXTER_TRAJECTORY_EXECUTE_ROS_ACTION_INCLUDE_GRIPPERS` (default `true`): include gripper goals in `ros2_action` transport.
+- `DEXTER_TRAJECTORY_EXECUTE_ROS_ACTION_GOAL_TOLERANCE_SEC` (default `1.0`): action goal time tolerance.
 - `DEXTER_TRAJECTORY_EXECUTION_WATCHDOG_ENABLED` (default `true`): enforce runtime session watchdog during execute.
 - `DEXTER_TRAJECTORY_EXECUTION_WATCHDOG_INTERVAL_SEC` (default `0.25`): watchdog check cadence.
 

@@ -7,12 +7,30 @@ Starts Gazebo, spawns robot, and loads controllers.
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess, IncludeLaunchDescription, TimerAction, SetEnvironmentVariable
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, OpaqueFunction, TimerAction, SetEnvironmentVariable
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, FindExecutable, PathJoinSubstitution
+from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from launch_ros.parameter_descriptions import ParameterValue
+
+
+def _launch_gz_sim(context, world_file):
+    gui_enabled = LaunchConfiguration("gui").perform(context).lower() == "true"
+    gz_args_prefix = "-r " if gui_enabled else "-r -s "
+
+    return [
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                PathJoinSubstitution([
+                    FindPackageShare("ros_gz_sim"),
+                    "launch",
+                    "gz_sim.launch.py"
+                ])
+            ),
+            launch_arguments={"gz_args": [gz_args_prefix, world_file]}.items(),
+        )
+    ]
 
 
 def generate_launch_description():
@@ -54,24 +72,24 @@ def generate_launch_description():
         ]
     )
 
-    # Start Gazebo Harmonic
-    gazebo = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution([
-                FindPackageShare("ros_gz_sim"),
-                "launch",
-                "gz_sim.launch.py"
-            ])
-        ),
-        launch_arguments={"gz_args": ["-r ", world_file]}.items(),
+    declare_gui = DeclareLaunchArgument(
+        "gui",
+        default_value="true",
+        description="Start Gazebo GUI (false for headless server mode)",
     )
+
+    # Start Gazebo Harmonic
+    gazebo = OpaqueFunction(function=lambda context: _launch_gz_sim(context, world_file))
 
     # Robot state publisher
     robot_state_publisher_node = Node(
         package="robot_state_publisher",
         executable="robot_state_publisher",
         output="both",
-        parameters=[{"robot_description": robot_description_content}],
+        parameters=[
+            {"robot_description": robot_description_content},
+            {"use_sim_time": True},
+        ],
     )
 
     # Spawn robot in Gazebo using gz service
@@ -117,6 +135,7 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
+            declare_gui,
             gz_resource_path,
             gazebo,
             robot_state_publisher_node,
@@ -125,4 +144,3 @@ def generate_launch_description():
             spawn_joint_state_broadcaster,
         ]
     )
-

@@ -15,12 +15,36 @@ namespace dexter_arm_hardware
 namespace {
 constexpr double PI = 3.14159;
 constexpr double TWO_PI = 2.0 * PI;
-constexpr double GRIPPER_TRAVEL_M = 0.02;  // 0.0=open, -0.02=closed (matches URDF j7*l1/j7*r1)
+constexpr double GRIPPER_TRAVEL_M = 0.025;  // 0.0=open, -0.025=closed (matches URDF j7*l1/j7*r1)
 constexpr size_t NUM_HW_JOINTS = 14;
 constexpr size_t HEALTH_MSG_FIELDS = 11;
 constexpr double STATE_STALE_TIMEOUT_S = 0.8;
 constexpr double HEALTH_STALE_TIMEOUT_S = 1.2;
 constexpr double MAX_HOST_CMD_DELTA_RAD = 0.35;
+
+double default_joint_command(size_t idx)
+{
+  // Keep arm joints at 0.0 rad by default.
+  // Gripper defaults match requested open pose semantics:
+  // j7l1=-0.025, j7l2=0.0, j7r1=0.0, j7r2=-0.025
+  switch (idx) {
+    case 6:   // j7l1
+      return -GRIPPER_TRAVEL_M;
+    case 7:   // j7l2
+      return 0.0;
+    case 14:  // j7r1
+      return 0.0;
+    case 15:  // j7r2
+      return -GRIPPER_TRAVEL_M;
+    default:
+      return 0.0;
+  }
+}
+
+double clamp01(double value)
+{
+  return std::max(0.0, std::min(1.0, value));
+}
 }  // namespace
 
 hardware_interface::CallbackReturn DexterHardwareInterface::on_init(
@@ -248,10 +272,10 @@ hardware_interface::CallbackReturn DexterHardwareInterface::on_activate(
   for (size_t i = 0; i < hw_positions_.size(); i++)
   {
     if (std::isnan(hw_positions_[i])) {
-      // No state received - use safe default to avoid dangerous jumps
-      hw_commands_[i] = 0.0;
+      // No state received - use safe defaults that keep grippers in open pose.
+      hw_commands_[i] = default_joint_command(i);
       RCLCPP_WARN_ONCE(rclcpp::get_logger("DexterHardwareInterface"),
-        "Position for joint %zu is NaN (no state); using 0.0 as fallback", i);
+        "Position for joint %zu is NaN (no state); using configured fallback defaults", i);
     }
     else {
       hw_commands_[i] = hw_positions_[i];
@@ -299,24 +323,28 @@ hardware_interface::return_type DexterHardwareInterface::read(
       hw_velocities_[i + 8] = 0.0;
     }
     
-    // GRIPPER CONVERSION: Revolute (0..PI rad) -> Prismatic (0.0..-0.02 m)
+    // GRIPPER CONVERSION: Revolute (0..PI rad) -> Prismatic (0.0..-0.025 m)
     
     // Left Gripper: ESP Index 6 -> ROS Indices 6 (j7l1) and 7 (j7l2)
+    // Servo 0 rad = open, PI rad = closed.
+    // Requested semantics:
+    // j7l1: open=-0.025, close=0.0
+    // j7l2: open=0.0,   close=-0.025
     double left_servo_rad = latest_state_msg_.data[6];
-    // 0 rad -> 0.0 m (open), PI rad -> -0.02 m (closed)
-    double left_prism_m = -((left_servo_rad / PI) * GRIPPER_TRAVEL_M);
-    left_prism_m = std::max(-GRIPPER_TRAVEL_M, std::min(0.0, left_prism_m));
-    hw_positions_[6] = left_prism_m;  // j7l1
-    hw_positions_[7] = left_prism_m;  // j7l2
+    const double left_close_ratio = clamp01(left_servo_rad / PI);
+    hw_positions_[6] = -GRIPPER_TRAVEL_M + (left_close_ratio * GRIPPER_TRAVEL_M);  // j7l1
+    hw_positions_[7] = -(left_close_ratio * GRIPPER_TRAVEL_M);                       // j7l2
     hw_velocities_[6] = 0.0;
     hw_velocities_[7] = 0.0;
 
     // Right Gripper: ESP Index 13 -> ROS Indices 14 (j7r1) and 15 (j7r2)
+    // Requested semantics:
+    // j7r1: open=0.0,   close=-0.025
+    // j7r2: open=-0.025, close=0.0
     double right_servo_rad = latest_state_msg_.data[13];
-    double right_prism_m = -((right_servo_rad / PI) * GRIPPER_TRAVEL_M);
-    right_prism_m = std::max(-GRIPPER_TRAVEL_M, std::min(0.0, right_prism_m));
-    hw_positions_[14] = right_prism_m;  // j7r1
-    hw_positions_[15] = right_prism_m;  // j7r2
+    const double right_close_ratio = clamp01(right_servo_rad / PI);
+    hw_positions_[14] = -(right_close_ratio * GRIPPER_TRAVEL_M);                      // j7r1
+    hw_positions_[15] = -GRIPPER_TRAVEL_M + (right_close_ratio * GRIPPER_TRAVEL_M);  // j7r2
     hw_velocities_[14] = 0.0;
     hw_velocities_[15] = 0.0;
   }
@@ -371,22 +399,23 @@ hardware_interface::return_type DexterHardwareInterface::write(
   }
 
   // GRIPPER CONVERSION: Prismatic -> Revolute
-  // Map ONLY primary joints: j7l1 (Index 6) and j7r1 (Index 14)
+  // Derive close ratio from both mirrored fingers to honor per-joint semantics.
 
-  // Left Gripper: j7l1 (ROS Index 6) -> ESP Index 6
-  double left_cmd_m = sanitize_joint(6);  // j7l1
-  left_cmd_m = std::max(-GRIPPER_TRAVEL_M, std::min(0.0, left_cmd_m));
-  // 0.0 m -> 0 rad, -0.02 m -> PI rad
-  double left_servo_rad = ((-left_cmd_m) / GRIPPER_TRAVEL_M) * PI;
-  left_servo_rad = std::max(0.0, std::min(PI, left_servo_rad));
-  cmd_msg.data[6] = left_servo_rad;
+  // Left gripper joints: j7l1 (idx 6), j7l2 (idx 7)
+  const double left_j7l1 = std::max(-GRIPPER_TRAVEL_M, std::min(0.0, sanitize_joint(6)));
+  const double left_j7l2 = std::max(-GRIPPER_TRAVEL_M, std::min(0.0, sanitize_joint(7)));
+  const double left_ratio_from_j7l1 = (left_j7l1 + GRIPPER_TRAVEL_M) / GRIPPER_TRAVEL_M;
+  const double left_ratio_from_j7l2 = (-left_j7l2) / GRIPPER_TRAVEL_M;
+  const double left_close_ratio = clamp01(0.5 * (left_ratio_from_j7l1 + left_ratio_from_j7l2));
+  cmd_msg.data[6] = clamp01(left_close_ratio) * PI;
 
-  // Right Gripper: j7r1 (ROS Index 14) -> ESP Index 13
-  double right_cmd_m = sanitize_joint(14);  // j7r1
-  right_cmd_m = std::max(-GRIPPER_TRAVEL_M, std::min(0.0, right_cmd_m));
-  double right_servo_rad = ((-right_cmd_m) / GRIPPER_TRAVEL_M) * PI;
-  right_servo_rad = std::max(0.0, std::min(PI, right_servo_rad));
-  cmd_msg.data[13] = right_servo_rad;
+  // Right gripper joints: j7r1 (idx 14), j7r2 (idx 15)
+  const double right_j7r1 = std::max(-GRIPPER_TRAVEL_M, std::min(0.0, sanitize_joint(14)));
+  const double right_j7r2 = std::max(-GRIPPER_TRAVEL_M, std::min(0.0, sanitize_joint(15)));
+  const double right_ratio_from_j7r1 = (-right_j7r1) / GRIPPER_TRAVEL_M;
+  const double right_ratio_from_j7r2 = (right_j7r2 + GRIPPER_TRAVEL_M) / GRIPPER_TRAVEL_M;
+  const double right_close_ratio = clamp01(0.5 * (right_ratio_from_j7r1 + right_ratio_from_j7r2));
+  cmd_msg.data[13] = clamp01(right_close_ratio) * PI;
 
   // Host-side per-frame clamp to reject sudden target jumps before they hit firmware.
   if (last_targets_initialized_) {

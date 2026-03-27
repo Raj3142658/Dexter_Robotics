@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>dexter_arm_trajectory</name>
+  <version>2.0.0</version>
+  <description>Teach-repeat trajectory recording and playback system for Dexter Arm</description>
+  <maintainer email="raj@example.com">Raj</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <!-- Python dependencies -->
+  <depend>rclpy</depend>
+  <depend>ament_index_python</depend>
+  <depend>std_srvs</depend>
+  <depend>python3-numpy</depend>
+  <depend>python3-scipy</depend>
+  
+  <!-- MoveIt dependencies -->
+  <depend>moveit_msgs</depend>
+  
+  <!-- Message dependencies -->
+  <depend>geometry_msgs</depend>
+  <depend>trajectory_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>control_msgs</depend>
+  <depend>visualization_msgs</depend>
+  
+  <!--Action dependencies -->
+  <depend>action_msgs</depend>
+  <depend>dexter_arm_trajectory_msgs</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

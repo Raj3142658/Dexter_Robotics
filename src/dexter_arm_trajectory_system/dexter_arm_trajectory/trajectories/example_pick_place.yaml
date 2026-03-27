@@ -1,0 +1,27 @@
+# Example Trajectory 1: Simple Pick-and-Place Motion
+
+name: example_pick_place
+description: Demo trajectory for testing teach-repeat system
+timestamp: "2026-01-28T09:00:00"
+joint_names:
+  - joint_1
+  - joint_2
+  - joint_3
+  - joint_4
+  - joint_5
+  - joint_6
+duration: 5.0
+waypoint_count: 3
+points:
+  - positions: [0.0, -0.5, 1.2, 0.0, 0.8, 0.0]
+    velocities: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    accelerations: []
+    time_from_start: 0.0
+  - positions: [0.3, -0.3, 1.0, 0.1, 0.9, 0.2]
+    velocities: [0.1, 0.05, -0.05, 0.02, 0.03, 0.05]
+    accelerations: []
+    time_from_start: 2.5
+  - positions: [0.5, -0.2, 0.9, 0.2, 1.0, 0.3]
+    velocities: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    accelerations: []
+    time_from_start: 5.0

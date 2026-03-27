@@ -25,6 +25,8 @@ from fastapi.responses import Response
 
 from .models import CleanupRequest, EventMessage, ExecuteTrajectoryRequest, FirmwareUploadStartRequest, FullStackStartRequest, GazeboStartRequest, HardwareBootstrapStartRequest, JogJointRequest, MoveitStartRequest, RvizStartRequest, TrajectoryGenerateRequest, TrajectorySafetyCheckRequest, TrajectorySafetyDefaultReferenceRequest, TrajectorySafetyLimitsRequest
 from .trajectory_executor import ExecuteArtifactError, LoadedExecuteArtifact, load_execute_artifact, run_loaded_execute_artifact
+from .trajectory_convert import convert_joint_trajectory_yaml_to_execute14, load_joint_trajectory_yaml
+from .ros_trajectory_bridge import RosTrajectoryBridge, RosTrajectoryBridgeError
 from .services.full_stack_service import FullStackService
 from .services.gazebo_service import GazeboService
 from .services.hardware_bootstrap_service import HardwareBootstrapService
@@ -92,6 +94,10 @@ BRIDGE_STOP_SCRIPT = Path(
 BRIDGE_RECOVERY_HINT = os.getenv("DEXTER_TRAJECTORY_BRIDGE_RECOVERY_HINT", "").strip()
 bridge_control_lock = asyncio.Lock()
 TRAJECTORY_BACKEND_MODE = os.getenv("DEXTER_TRAJECTORY_BACKEND_MODE", "auto").strip().lower()
+TRAJECTORY_GENERATION_MODE = os.getenv("DEXTER_TRAJECTORY_GENERATION_MODE", "auto").strip().lower()
+TRAJECTORY_TEACH_MODE = os.getenv("DEXTER_TRAJECTORY_TEACH_MODE", "ros").strip().lower()
+TRAJECTORY_ROS_TIMEOUT_SEC = float(os.getenv("DEXTER_TRAJECTORY_ROS_TIMEOUT_SEC", "15.0"))
+MOVEITPY_TRAJECTORY_TIMEOUT_SEC = float(os.getenv("DEXTER_TRAJECTORY_MOVEITPY_TIMEOUT_SEC", "60.0"))
 NATIVE_TRAJECTORY_RUNTIME_DIR = REPO_ROOT / ".runtime" / "trajectory_native"
 NATIVE_TRAJECTORY_JOBS_DIR = NATIVE_TRAJECTORY_RUNTIME_DIR / "jobs"
 NATIVE_TRAJECTORY_LIBRARY_DIR = NATIVE_TRAJECTORY_RUNTIME_DIR / "library"
@@ -101,6 +107,9 @@ TEACH_TRAJECTORY_RUNTIME_DIR = REPO_ROOT / ".runtime" / "trajectory_teach"
 TEACH_TRAJECTORY_SAVED_DIR = TEACH_TRAJECTORY_RUNTIME_DIR / "saved"
 TEACH_TRAJECTORY_STATE_FILE = TEACH_TRAJECTORY_RUNTIME_DIR / "session_state.json"
 BRIDGE_TRAJECTORY_JOBS_DIR = REPO_ROOT / ".runtime" / "trajectory_bridge" / "jobs"
+MOVEITPY_TRAJECTORY_RUNTIME_DIR = REPO_ROOT / ".runtime" / "trajectory_moveitpy"
+MOVEITPY_TRAJECTORY_PACKAGE = "dexter_trajectory_generator"
+MOVEITPY_TRAJECTORY_LAUNCH = "trajectory_node.launch.py"
 NATIVE_JOB_PREFIX = "native_"
 NATIVE_ARTIFACT_SCHEMA_VERSION = "dexter.trajectory.native.v1"
 NATIVE_EXECUTE_SCHEMA_VERSION = "dexter.trajectory.execute14.v1"
@@ -120,6 +129,7 @@ NATIVE_TRAJECTORY_LIBRARY_DIR.mkdir(parents=True, exist_ok=True)
 NATIVE_EXECUTION_REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 TEACH_TRAJECTORY_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 TEACH_TRAJECTORY_SAVED_DIR.mkdir(parents=True, exist_ok=True)
+MOVEITPY_TRAJECTORY_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 
 HARDWARE_JOINT_ORDER_14 = [
     "j1l",
@@ -739,7 +749,7 @@ def _parse_time_from_point(raw: Any) -> float:
 
 
 def _prismatic_to_servo_rad(value_m: float) -> float:
-    rad = (float(value_m) / -0.022) * math.pi
+    rad = (float(value_m) / -0.025) * math.pi
     return max(0.0, min(math.pi, rad))
 
 
@@ -830,6 +840,115 @@ def _native_execute_payload(job_id: str, trajectory_name: str, config: dict[str,
     }
 
 
+def _import_joint_trajectory_yaml(
+    source_path: Path,
+    *,
+    trajectory_name: str | None = None,
+) -> dict[str, Any]:
+    if not source_path.exists():
+        raise HTTPException(status_code=404, detail=f"Source YAML not found: {source_path}")
+
+    source_payload = load_joint_trajectory_yaml(source_path)
+    name = _sanitize_trajectory_name(
+        trajectory_name
+        or str(source_payload.get("name") or "")
+        or source_path.stem,
+        fallback="trajectory",
+    )
+
+    job_id = f"{NATIVE_JOB_PREFIX}{uuid.uuid4().hex[:12]}"
+    target_dir, plan_file, execute_file = _make_trajectory_bundle_paths(name)
+
+    # Convert to execute14
+    conversion = convert_joint_trajectory_yaml_to_execute14(
+        source_payload,
+        job_id=job_id,
+        trajectory_name=name,
+    )
+    execute_file.write_text(_render_yaml_document(conversion.payload), encoding="utf-8")
+
+    # Minimal plan payload to satisfy validation gate
+    config_stub = {
+        "imported_from": str(source_path),
+        "source_name": str(source_payload.get("name") or ""),
+        "source_description": str(source_payload.get("description") or ""),
+    }
+    plan_payload = {
+        "schema_version": NATIVE_ARTIFACT_SCHEMA_VERSION,
+        "kind": "dexter_trajectory_plan",
+        "job": {
+            "id": job_id,
+            "trajectory_name": name,
+            "backend": "native",
+            "created_at": _iso_utc_now(),
+        },
+        "provenance": {
+            "middleware": {
+                "service": app.title,
+                "version": app.version,
+            },
+            "backend_selected": "native",
+            "bridge_online_at_generation": False,
+            "bridge_base_url": BRIDGE_BASE_URL,
+            "source_config_sha256": _sha256_json(config_stub),
+        },
+        "request": {
+            "trajectory_name": name,
+            "config": config_stub,
+        },
+        "trajectory": {
+            "waypoint_count": int(conversion.payload.get("point_count", 0)),
+        },
+        "note": "Imported from JointTrajectory YAML",
+    }
+    plan_file.write_text(_render_yaml_document(plan_payload), encoding="utf-8")
+
+    # Keep a copy of the original YAML for debugging
+    source_copy = target_dir / f"{name}.source.yaml"
+    try:
+        source_copy.write_text(source_path.read_text(encoding="utf-8"), encoding="utf-8")
+    except Exception:
+        pass
+
+    # Compute duration
+    points = conversion.payload.get("points") if isinstance(conversion.payload.get("points"), list) else []
+    duration = 0.0
+    if points:
+        duration = float(points[-1].get("time_from_start_sec", 0.0) or 0.0)
+
+    job = {
+        "job_id": job_id,
+        "status": "done",
+        "output_file": str(plan_file),
+        "trajectory_name": name,
+        "trajectory_dir": str(target_dir),
+        "plan_file": str(plan_file),
+        "execute_file": str(execute_file),
+        "duration": duration,
+        "waypoints": int(conversion.payload.get("point_count", 0)),
+        "execute_points": int(conversion.payload.get("point_count", 0)),
+        "fraction": 100.0,
+        "backend": "native",
+        "artifact_schema": NATIVE_ARTIFACT_SCHEMA_VERSION,
+        "artifact_format": "yaml",
+        "path_length_m": 0.0,
+        "created_at": time.time(),
+        "imported_from": str(source_path),
+    }
+
+    meta_file = NATIVE_TRAJECTORY_JOBS_DIR / f"{job_id}.meta.json"
+    meta_file.write_text(json.dumps(job, indent=2), encoding="utf-8")
+    _register_native_job(job)
+    return _normalize_job_contract({
+        "job_id": job_id,
+        "status": "queued",
+        "output_file": str(plan_file),
+        "backend": "native",
+        "artifact_schema": NATIVE_ARTIFACT_SCHEMA_VERSION,
+        "artifact_format": "yaml",
+    }, backend_hint="native")
+
+
 def _sha256_json(value: Any) -> str:
     raw = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
@@ -907,7 +1026,7 @@ def _native_artifact_payload(
     ref_z: float,
 ) -> tuple[dict[str, Any], list[tuple[float, float, float]]]:
     shape = _shape_type_from_config(config)
-    waypoints = _xy_shape_waypoints(shape, params, ref_x, ref_y, ref_z)
+    waypoints = _xy_shape_waypoints(shape, params, ref_x, ref_y, ref_z, surface=surface)
 
     path_length = 0.0
     for idx in range(1, len(waypoints)):
@@ -1430,7 +1549,15 @@ def _shape_param_limits(shape: str, available: float) -> dict[str, dict[str, flo
     }.get(shape, {})
 
 
-def _xy_shape_waypoints(shape: str, params: dict[str, float], ref_x: float, ref_y: float, ref_z: float, n: int = 60) -> list[tuple[float, float, float]]:
+def _xy_shape_waypoints(
+    shape: str,
+    params: dict[str, float],
+    ref_x: float,
+    ref_y: float,
+    ref_z: float,
+    n: int = 60,
+    surface: str = "XY",
+) -> list[tuple[float, float, float]]:
     pts2d: list[tuple[float, float]] = []
     if shape == "circle":
         r = float(params.get("radius", 0.08))
@@ -1483,10 +1610,23 @@ def _xy_shape_waypoints(shape: str, params: dict[str, float], ref_x: float, ref_
             a = t * turns * math.pi * 2.0
             pts2d.append((r * math.cos(a), r * math.sin(a)))
 
+    surface = surface.upper().strip() if surface else "XY"
+    if surface == "XZ":
+        return [(ref_x + u, ref_y, ref_z + v) for (u, v) in pts2d]
+    if surface == "YZ":
+        return [(ref_x, ref_y + u, ref_z + v) for (u, v) in pts2d]
     return [(ref_x + u, ref_y + v, ref_z) for (u, v) in pts2d]
 
 
-def _validate_xy_shape_request(arm: str, shape: str, params: dict[str, float], ref_x: float, ref_y: float, ref_z: float) -> list[str]:
+def _validate_xy_shape_request(
+    arm: str,
+    shape: str,
+    params: dict[str, float],
+    ref_x: float,
+    ref_y: float,
+    ref_z: float,
+    surface: str = "XY",
+) -> list[str]:
     zone = _arm_safety_zone(arm)
     x_lo, x_hi = float(zone["x_range"][0]), float(zone["x_range"][1])
     y_lo, y_hi = float(zone["y_range"][0]), float(zone["y_range"][1])
@@ -1496,7 +1636,7 @@ def _validate_xy_shape_request(arm: str, shape: str, params: dict[str, float], r
     ratio = float(zone.get("reach_soft_ratio", TRAJECTORY_SAFETY.get("defaults", {}).get("reach_soft_ratio", 0.95)))
 
     violations: list[str] = []
-    points = _xy_shape_waypoints(shape, params, ref_x, ref_y, ref_z)
+    points = _xy_shape_waypoints(shape, params, ref_x, ref_y, ref_z, surface=surface)
     if not points:
         return [f"Unsupported shape '{shape}'"]
 
@@ -1577,6 +1717,394 @@ def _shape_params_from_config(shape_type: str, shape_cfg: dict[str, Any]) -> dic
     return out
 
 
+def _shape_waypoint_count(shape_cfg: dict[str, Any], default: int = 60) -> int:
+    try:
+        n = int(shape_cfg.get("n_points", default))
+    except Exception:
+        n = default
+    return max(4, min(5000, n))
+
+
+def _moveitpy_generator_available() -> bool:
+    launch_path = (
+        REPO_ROOT
+        / "install"
+        / MOVEITPY_TRAJECTORY_PACKAGE
+        / "share"
+        / MOVEITPY_TRAJECTORY_PACKAGE
+        / "launch"
+        / MOVEITPY_TRAJECTORY_LAUNCH
+    )
+    return launch_path.exists()
+
+
+def _normalize_generation_mode(value: str) -> str:
+    mode = (value or "").strip().lower()
+    if mode in {"", "auto"}:
+        return "moveitpy" if _moveitpy_generator_available() else "ros"
+    if mode in {"moveitpy", "moveit_py", "generator", "dexter_generator"}:
+        return "moveitpy"
+    if mode in {"ros", "ros2", "moveit"}:
+        return "ros"
+    if mode in {"native"}:
+        return "native"
+    return mode
+
+
+def _ros_generation_enabled() -> bool:
+    return _normalize_generation_mode(TRAJECTORY_GENERATION_MODE) == "ros"
+
+
+def _ros_teach_enabled() -> bool:
+    return TRAJECTORY_TEACH_MODE in {"ros", "ros2", "moveit"}
+
+
+def _ros_shape_request_params(
+    shape: str,
+    params: dict[str, float],
+    shape_cfg: dict[str, Any],
+) -> tuple[str, float, float, float]:
+    """Map middleware shape config into dexter_arm_trajectory GenerateShapeTrajectory params."""
+
+    def _num(key: str, fallback: float) -> float:
+        try:
+            return float(shape_cfg.get(key, fallback))
+        except Exception:
+            return float(fallback)
+
+    shape = shape.lower().strip()
+
+    if shape == "circle":
+        return ("arc", float(params.get("radius", _num("radius", 0.08))), 0.0, 360.0)
+    if shape == "arc":
+        return ("arc", float(params.get("radius", _num("radius", 0.10))), 0.0, float(params.get("angle", _num("angle", 180.0))))
+    if shape == "line":
+        return ("line", float(params.get("length", _num("length", 0.15))), 0.0, 0.0)
+    if shape == "rectangle":
+        return (
+            "rectangle",
+            float(params.get("width", _num("width", 0.12))),
+            float(params.get("height", _num("height", 0.08))),
+            0.0,
+        )
+    if shape == "square":
+        return ("square", float(_num("side", 0.10)), 0.0, 0.0)
+    if shape == "triangle":
+        return ("triangle", float(_num("base", 0.10)), float(_num("height", 0.10)), 0.0)
+    if shape == "oval":
+        return ("oval", float(_num("rx", 0.08)), float(_num("rz", 0.06)), 0.0)
+    if shape == "zigzag":
+        return (
+            "zigzag",
+            float(params.get("length", _num("length", 0.15))),
+            float(params.get("width", _num("width", 0.04))),
+            float(params.get("steps", _num("steps", 4.0))),
+        )
+    if shape == "spiral":
+        return (
+            "spiral",
+            float(params.get("r1", _num("inner_radius", 0.03))),
+            float(params.get("r2", _num("outer_radius", 0.10))),
+            float(params.get("turns", _num("turns", 2.0))),
+        )
+
+    raise HTTPException(status_code=400, detail=f"Unsupported ROS shape type '{shape}'")
+
+
+def _moveitpy_surface_config(config: dict[str, Any]) -> dict[str, Any]:
+    surface_cfg = config.get("surface") if isinstance(config.get("surface"), dict) else {}
+    normal = surface_cfg.get("normal")
+
+    def _normal_from(value: Any) -> list[float] | None:
+        if isinstance(value, list) and len(value) >= 3:
+            try:
+                return [float(value[0]), float(value[1]), float(value[2])]
+            except Exception:
+                return None
+        if isinstance(value, dict):
+            try:
+                return [float(value.get("x", 0.0)), float(value.get("y", 0.0)), float(value.get("z", 1.0))]
+            except Exception:
+                return None
+        return None
+
+    normal_vec = _normal_from(normal)
+    if normal_vec is None:
+        normal_vec = _normal_from(config.get("surface_normal"))
+
+    if normal_vec is None:
+        normal_vec = [0.0, 0.0, 1.0]
+
+    tool_tilt_deg = surface_cfg.get("tool_tilt_deg", config.get("tool_tilt_deg", 0.0))
+    if tool_tilt_deg is None:
+        tool_tilt_deg = 0.0
+    if isinstance(tool_tilt_deg, dict):
+        tool_tilt_deg = tool_tilt_deg.get("z", 0.0)
+    try:
+        tool_tilt_deg = float(tool_tilt_deg)
+    except Exception:
+        tool_tilt_deg = 0.0
+
+    return {
+        "normal": normal_vec,
+        "tool_tilt_deg": tool_tilt_deg,
+    }
+
+
+def _moveitpy_shape_config(shape_cfg: dict[str, Any]) -> dict[str, Any]:
+    shape_type = str(shape_cfg.get("type", "")).lower().strip()
+
+    def _num(key: str, default: float) -> float:
+        try:
+            return float(shape_cfg.get(key, default))
+        except Exception:
+            return float(default)
+
+    n_points = _shape_waypoint_count(shape_cfg)
+    if shape_type == "square":
+        side = _num("side", _num("side_length", _num("length", 0.10)))
+        return {"type": "rectangle", "width": side, "height": side, "n_points": int(n_points)}
+
+    if shape_type not in {"circle", "line", "rectangle", "rect", "arc", "zigzag", "spiral"}:
+        raise HTTPException(status_code=400, detail=f"Unsupported MoveItPy shape type '{shape_type}'")
+
+    cfg: dict[str, Any] = {"type": shape_type}
+    if shape_type == "circle":
+        cfg["radius"] = _num("radius", 0.08)
+    elif shape_type == "line":
+        cfg["length"] = _num("length", 0.15)
+        if "direction_u" in shape_cfg:
+            cfg["direction_u"] = _num("direction_u", 1.0)
+        if "direction_v" in shape_cfg:
+            cfg["direction_v"] = _num("direction_v", 0.0)
+    elif shape_type in {"rectangle", "rect"}:
+        cfg["width"] = _num("width", 0.12)
+        cfg["height"] = _num("height", _num("length", 0.08))
+    elif shape_type == "arc":
+        cfg["radius"] = _num("radius", 0.10)
+        if "start_angle_deg" in shape_cfg or "end_angle_deg" in shape_cfg:
+            cfg["start_angle_deg"] = _num("start_angle_deg", 0.0)
+            cfg["end_angle_deg"] = _num("end_angle_deg", 180.0)
+        elif "angle" in shape_cfg:
+            angle = _num("angle", 180.0)
+            cfg["start_angle_deg"] = 0.0
+            cfg["end_angle_deg"] = angle
+        else:
+            cfg["start_angle_deg"] = 0.0
+            cfg["end_angle_deg"] = 180.0
+    elif shape_type == "zigzag":
+        cfg["length"] = _num("length", 0.15)
+        cfg["zag_width"] = _num("zag_width", _num("width", 0.04))
+        cfg["steps"] = int(_num("steps", 4.0))
+    elif shape_type == "spiral":
+        cfg["inner_radius"] = _num("inner_radius", _num("r1", 0.03))
+        cfg["outer_radius"] = _num("outer_radius", _num("r2", 0.10))
+        cfg["turns"] = _num("turns", 2.0)
+    else:
+        cfg.update(shape_cfg)
+
+    cfg["n_points"] = int(n_points)
+    return cfg
+
+
+def _moveitpy_execution_params(config: dict[str, Any]) -> dict[str, Any]:
+    exec_cfg = config.get("execution") if isinstance(config.get("execution"), dict) else {}
+
+    def _num(key: str, default: float) -> float:
+        try:
+            return float(exec_cfg.get(key, default))
+        except Exception:
+            return float(default)
+
+    def _flag(key: str, default: bool) -> bool:
+        value = exec_cfg.get(key, default)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    return {
+        "eef_step": _num("eef_step", 0.005),
+        "jump_threshold": _num("jump_threshold", 0.0),
+        "max_velocity_scaling": _num("max_velocity_scaling", 0.3),
+        "max_acceleration_scaling": _num("max_acceleration_scaling", 0.1),
+        "avoid_collisions": _flag("avoid_collisions", True),
+        "time_param_method": str(exec_cfg.get("time_param_method", "totg") or "totg").lower(),
+    }
+
+
+def _moveitpy_generate_shape_and_import(
+    config: dict[str, Any],
+    *,
+    requested_name: str | None = None,
+) -> dict[str, Any]:
+    if not _moveitpy_generator_available():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "MoveItPy generator not available. Build with "
+                "`colcon build --symlink-install --packages-select dexter_trajectory_generator` "
+                "and restart the control center."
+            ),
+        )
+
+    shape_cfg = config.get("shape") if isinstance(config.get("shape"), dict) else {}
+    shape_type = str(shape_cfg.get("type", "")).lower().strip() or "shape"
+    arm = str(config.get("arm", "left")).lower().strip()
+
+    safe_name = _sanitize_trajectory_name(
+        requested_name or str(config.get("trajectory_name") or config.get("name") or ""),
+        fallback=f"{shape_type}_{arm}",
+    )
+
+    ref_cfg = config.get("reference_point") if isinstance(config.get("reference_point"), dict) else {}
+    ref_x = float(ref_cfg.get("x", 0.25))
+    ref_y = float(ref_cfg.get("y", 0.0))
+    ref_z = float(ref_cfg.get("z", 0.2))
+
+    moveitpy_config = {
+        "arm": arm,
+        "shape": _moveitpy_shape_config(shape_cfg),
+        "reference_point": {"x": ref_x, "y": ref_y, "z": ref_z},
+        "surface": _moveitpy_surface_config(config),
+    }
+
+    run_id = uuid.uuid4().hex[:8]
+    config_path = MOVEITPY_TRAJECTORY_RUNTIME_DIR / f"{safe_name}_{run_id}.config.yaml"
+    output_path = MOVEITPY_TRAJECTORY_RUNTIME_DIR / f"{safe_name}_{run_id}.output.yaml"
+    log_path = MOVEITPY_TRAJECTORY_RUNTIME_DIR / f"{safe_name}_{run_id}.log"
+
+    config_path.write_text(_render_yaml_document(moveitpy_config), encoding="utf-8")
+
+    exec_params = _moveitpy_execution_params(config)
+    description = f"{shape_type} ({arm} arm)"
+
+    cmd = [
+        "ros2",
+        "launch",
+        MOVEITPY_TRAJECTORY_PACKAGE,
+        MOVEITPY_TRAJECTORY_LAUNCH,
+        f"config_file:={str(config_path)}",
+        f"output_file:={str(output_path)}",
+        f"description:={description}",
+        f"eef_step:={exec_params['eef_step']}",
+        f"jump_threshold:={exec_params['jump_threshold']}",
+        f"max_velocity_scaling:={exec_params['max_velocity_scaling']}",
+        f"max_acceleration_scaling:={exec_params['max_acceleration_scaling']}",
+        f"avoid_collisions:={'true' if exec_params['avoid_collisions'] else 'false'}",
+        f"time_param_method:={exec_params['time_param_method']}",
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=MOVEITPY_TRAJECTORY_TIMEOUT_SEC,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail="ros2 CLI not found. Is ROS sourced?") from exc
+    except subprocess.TimeoutExpired as exc:
+        log_path.write_text((exc.stdout or "") + "\n" + (exc.stderr or ""), encoding="utf-8")
+        raise HTTPException(
+            status_code=503,
+            detail=f"MoveItPy generator timed out after {MOVEITPY_TRAJECTORY_TIMEOUT_SEC:.0f}s (log: {log_path})",
+        ) from exc
+
+    log_path.write_text((result.stdout or "") + "\n" + (result.stderr or ""), encoding="utf-8")
+
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        if len(detail) > 300:
+            detail = detail[-300:]
+        raise HTTPException(
+            status_code=503,
+            detail=f"MoveItPy generator failed (code {result.returncode}). {detail} (log: {log_path})",
+        )
+
+    if not output_path.exists() or output_path.stat().st_size == 0:
+        raise HTTPException(
+            status_code=500,
+            detail=f"MoveItPy generator did not create output YAML (log: {log_path})",
+        )
+
+    raw = load_joint_trajectory_yaml(output_path)
+    raw_points = raw.get("points") if isinstance(raw.get("points"), list) else []
+    if not raw_points:
+        raise HTTPException(
+            status_code=422,
+            detail="MoveItPy produced 0 trajectory points. Adjust position, size, or surface.",
+        )
+
+    return _import_joint_trajectory_yaml(output_path, trajectory_name=safe_name)
+
+
+def _ros_generate_shape_and_import(
+    config: dict[str, Any],
+    *,
+    requested_name: str | None = None,
+) -> dict[str, Any]:
+    arm, surface, params, ref_x, ref_y, ref_z, violations = _preflight_shape_generation_config(config)
+    if violations:
+        raise HTTPException(status_code=400, detail=f"Shape generation preflight failed: {violations[0]}")
+
+    shape_cfg = config.get("shape") if isinstance(config.get("shape"), dict) else {}
+    shape = str(shape_cfg.get("type", "")).lower().strip()
+    n_points = _shape_waypoint_count(shape_cfg)
+
+    ros_shape, param1, param2, param3 = _ros_shape_request_params(shape, params, shape_cfg)
+
+    # The legacy generator expects XZ plane (y=0). We map ref_x/ref_z directly and ignore ref_y.
+    ref_for_ros_x = float(ref_x)
+    ref_for_ros_z = float(ref_z)
+    if surface not in {"XZ", "XY"}:
+        # Keep defaults; unsupported surfaces should be handled by MoveIt safety checks downstream.
+        ref_for_ros_x = float(ref_x)
+        ref_for_ros_z = float(ref_z)
+
+    safe_name = _sanitize_trajectory_name(
+        requested_name or str(config.get("trajectory_name") or config.get("name") or ""),
+        fallback=f"{shape or 'shape'}_{arm}",
+    )
+    filename = f"{safe_name}.yaml"
+    description = f"{shape or 'shape'} ({arm} arm)"
+
+    bridge = RosTrajectoryBridge()
+    try:
+        gen = bridge.generate_shape(
+            arm=arm,
+            shape=ros_shape,
+            param1=param1,
+            param2=param2,
+            param3=param3,
+            ref_x=ref_for_ros_x,
+            ref_z=ref_for_ros_z,
+            num_waypoints=n_points,
+            timeout_sec=TRAJECTORY_ROS_TIMEOUT_SEC,
+        )
+        if not gen.success:
+            raise HTTPException(status_code=422, detail=gen.message or "ROS shape generation failed")
+
+        saved = bridge.save_trajectory(
+            filename=filename,
+            description=description,
+            timeout_sec=TRAJECTORY_ROS_TIMEOUT_SEC,
+        )
+        if not saved.success:
+            raise HTTPException(status_code=500, detail=saved.message or "ROS trajectory save failed")
+
+        save_path = getattr(saved.payload, "full_path", "") if saved.payload is not None else ""
+        if not save_path:
+            raise HTTPException(status_code=500, detail="ROS trajectory save did not return a path")
+
+        return _import_joint_trajectory_yaml(Path(save_path), trajectory_name=safe_name)
+    except RosTrajectoryBridgeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    finally:
+        bridge.close()
+
+
 def _preflight_shape_generation_config(config: dict[str, Any]) -> tuple[str, str, dict[str, float], float, float, float, list[str]]:
     """Extract generation fields and return (arm, surface, params, ref_x, ref_y, ref_z, violations)."""
     arm = str(config.get("arm", "left")).lower().strip()
@@ -1603,7 +2131,7 @@ def _preflight_shape_generation_config(config: dict[str, Any]) -> tuple[str, str
     shape_cfg = config.get("shape") if isinstance(config.get("shape"), dict) else {}
     shape = str(shape_cfg.get("type", "")).lower().strip()
     params = _shape_params_from_config(shape, shape_cfg)
-    violations = _validate_xy_shape_request(arm, shape, params, ref_x, ref_y, ref_z)
+    violations = _validate_xy_shape_request(arm, shape, params, ref_x, ref_y, ref_z, surface=surface)
     return arm, surface, params, ref_x, ref_y, ref_z, violations
 
 
@@ -1688,6 +2216,71 @@ def _proc_cmdline(pid: int) -> str:
         return out or "(unknown)"
     except Exception:
         return "(unknown)"
+
+
+def _list_ros_related_pids() -> list[int]:
+    try:
+        out = subprocess.run(
+            ["ps", "-eo", "pid=,args="],
+            check=False,
+            capture_output=True,
+            text=True,
+        ).stdout
+    except Exception:
+        return []
+
+    hints = [
+        "ros2 ",
+        "/opt/ros/",
+        "rviz2",
+        "move_group",
+        "robot_state_publisher",
+        "controller_manager",
+        "ros_gz_bridge",
+        "ros_gz_sim",
+        "gz sim",
+        "gazebo",
+        "gzserver",
+        "gzclient",
+        "spawner",
+        "joint_state_broadcaster",
+        "micro_ros_agent",
+        "fastdds",
+        "cyclonedds",
+    ]
+
+    pids: list[int] = []
+    for line in out.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) < 2:
+            continue
+        pid_str, cmd = parts[0], parts[1]
+        if not pid_str.isdigit():
+            continue
+        pid = int(pid_str)
+        cmd_l = cmd.lower()
+        if "dexter_middleware" in cmd_l or "uvicorn" in cmd_l:
+            continue
+        if any(hint in cmd_l for hint in hints):
+            pids.append(pid)
+    return sorted(set(pids))
+
+
+def _kill_ros_processes_forcefully(current_pid: int) -> dict:
+    pids = [pid for pid in _list_ros_related_pids() if pid != current_pid]
+    actions = []
+    for pid in pids:
+        actions.append(
+            {
+                "pid": pid,
+                "cmd": _proc_cmdline(pid),
+                "result": _kill_pid_gracefully(pid),
+            }
+        )
+    return {
+        "found_pids": pids,
+        "actions": actions,
+    }
 
 
 def _system_load() -> dict:
@@ -2335,14 +2928,26 @@ async def execute_trajectory(
         execution_context = "gazebo"
 
     transport_mode = _trajectory_execute_transport_mode()
-    if transport_mode not in {"", "dry_run", "none", "noop"} and execution_context != "hardware":
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Execution transport '{transport_mode}' requires active hardware session. "
-                "Start /ros/hardware/start first, or set DEXTER_TRAJECTORY_EXECUTE_TRANSPORT=dry_run."
-            ),
-        )
+    non_streaming = {"", "dry_run", "none", "noop"}
+    if transport_mode not in non_streaming:
+        if transport_mode == "ros2_action":
+            if execution_context not in {"hardware", "gazebo", "full_stack"}:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Execution transport '{transport_mode}' requires hardware, Gazebo, or full-stack session. "
+                        "Start /ros/hardware/start, /ros/gazebo/start, or /ros/full-stack/start "
+                        "first, or set DEXTER_TRAJECTORY_EXECUTE_TRANSPORT=dry_run."
+                    ),
+                )
+        elif execution_context != "hardware":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Execution transport '{transport_mode}' requires active hardware session. "
+                    "Start /ros/hardware/start first, or set DEXTER_TRAJECTORY_EXECUTE_TRANSPORT=dry_run."
+                ),
+            )
 
     loaded_artifact: LoadedExecuteArtifact | None = None
     run_id = f"exec_{uuid.uuid4().hex[:12]}"
@@ -2482,6 +3087,33 @@ async def trajectory_teach_status() -> dict:
 
 @app.post("/trajectory/teach/capture")
 async def trajectory_teach_capture(payload: dict[str, Any] | None = None) -> dict:
+    if _ros_teach_enabled():
+        bridge = RosTrajectoryBridge()
+        try:
+            resp = bridge.capture_segment(timeout_sec=TRAJECTORY_ROS_TIMEOUT_SEC)
+            if not resp.success:
+                raise HTTPException(status_code=422, detail=resp.message or "Teach capture failed")
+
+            segment_count = int(getattr(resp.payload, "segment_count", 0) or 0)
+            TEACH_SESSION_STATE["segments"] = [
+                {"segment_id": f"ros_seg_{idx + 1}", "captured_at": time.time()}
+                for idx in range(segment_count)
+            ]
+            TEACH_SESSION_STATE["compiled_job_id"] = None
+            TEACH_SESSION_STATE["compiled_at"] = None
+            _save_teach_session_state()
+
+            return {
+                "ok": True,
+                "message": resp.message or "Segment captured",
+                "segment_id": f"ros_seg_{segment_count}",
+                "segments_count": segment_count,
+            }
+        except RosTrajectoryBridgeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        finally:
+            bridge.close()
+
     body = payload if isinstance(payload, dict) else {}
     config = body.get("config") if isinstance(body.get("config"), dict) else _teach_default_config()
 
@@ -2517,6 +3149,17 @@ async def trajectory_teach_capture(payload: dict[str, Any] | None = None) -> dic
 
 @app.post("/trajectory/teach/clear")
 async def trajectory_teach_clear() -> dict:
+    if _ros_teach_enabled():
+        bridge = RosTrajectoryBridge()
+        try:
+            resp = bridge.clear_buffer(timeout_sec=TRAJECTORY_ROS_TIMEOUT_SEC)
+            if not resp.success:
+                raise HTTPException(status_code=500, detail=resp.message or "Teach buffer clear failed")
+        except RosTrajectoryBridgeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        finally:
+            bridge.close()
+
     TEACH_SESSION_STATE["segments"] = []
     TEACH_SESSION_STATE["compiled_job_id"] = None
     TEACH_SESSION_STATE["compiled_at"] = None
@@ -2530,6 +3173,48 @@ async def trajectory_teach_clear() -> dict:
 
 @app.post("/trajectory/teach/compile")
 async def trajectory_teach_compile(payload: dict[str, Any] | None = None) -> dict:
+    if _ros_teach_enabled():
+        bridge = RosTrajectoryBridge()
+        try:
+            resp = bridge.compile_trajectory(timeout_sec=TRAJECTORY_ROS_TIMEOUT_SEC)
+            if not resp.success:
+                raise HTTPException(status_code=422, detail=resp.message or "Teach compile failed")
+
+            timestamp = int(time.time())
+            temp_name = f"teach_compiled_{timestamp}.yaml"
+            save_resp = bridge.save_trajectory(
+                filename=temp_name,
+                description="teach compiled trajectory",
+                timeout_sec=TRAJECTORY_ROS_TIMEOUT_SEC,
+            )
+            if not save_resp.success:
+                raise HTTPException(status_code=500, detail=save_resp.message or "Teach save failed")
+
+            save_path = getattr(save_resp.payload, "full_path", "") if save_resp.payload is not None else ""
+            if not save_path:
+                raise HTTPException(status_code=500, detail="Teach save did not return a path")
+
+            compiled = _import_joint_trajectory_yaml(Path(save_path), trajectory_name=f"teach_{timestamp}")
+            compiled_job_id = str(compiled.get("job_id", "")).strip()
+            TEACH_SESSION_STATE["compiled_job_id"] = compiled_job_id or None
+            TEACH_SESSION_STATE["compiled_at"] = time.time()
+            _save_teach_session_state()
+
+            segments = TEACH_SESSION_STATE.get("segments")
+            segment_count = len(segments) if isinstance(segments, list) else 0
+
+            return {
+                "ok": True,
+                "message": resp.message or "Teach trajectory compiled",
+                "segments_count": segment_count,
+                "compiled_job_id": compiled_job_id,
+                "compiled_job": compiled,
+            }
+        except RosTrajectoryBridgeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        finally:
+            bridge.close()
+
     segments = TEACH_SESSION_STATE.get("segments")
     if not isinstance(segments, list) or not segments:
         raise HTTPException(status_code=400, detail="No captured teach segments to compile")
@@ -2668,6 +3353,12 @@ async def trajectory_generate(req: TrajectoryGenerateRequest) -> dict:
             detail=f"Safety preflight failed for {arm} arm: {violations[0]}",
         )
 
+    generation_mode = _normalize_generation_mode(TRAJECTORY_GENERATION_MODE)
+    if generation_mode == "moveitpy":
+        return _moveitpy_generate_shape_and_import(config, requested_name=requested_name)
+    if generation_mode == "ros":
+        return _ros_generate_shape_and_import(config, requested_name=requested_name)
+
     backend = _select_generation_backend()
     if backend == "native":
         return _native_generate(
@@ -2696,6 +3387,20 @@ async def trajectory_generate(req: TrajectoryGenerateRequest) -> dict:
     return _normalize_job_contract(bridge_resp, backend_hint="bridge")
 
 
+@app.post("/trajectory/import")
+async def trajectory_import(payload: dict[str, Any]) -> dict:
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid payload")
+
+    source_path = str(payload.get("source_path") or "").strip()
+    if not source_path:
+        raise HTTPException(status_code=400, detail="source_path is required")
+
+    name = str(payload.get("name") or "").strip() or None
+    result = _import_joint_trajectory_yaml(Path(source_path), trajectory_name=name)
+    return result
+
+
 @app.get("/trajectory/backend/status")
 async def trajectory_backend_status() -> dict:
     bridge_status = _bridge_status_payload()
@@ -2718,6 +3423,9 @@ async def trajectory_backend_status() -> dict:
         "trajectory_job_contract_version": TRAJECTORY_JOB_CONTRACT_VERSION,
         "native_artifact_schema": NATIVE_ARTIFACT_SCHEMA_VERSION,
         "native_jobs_count": len(NATIVE_TRAJECTORY_JOBS),
+        "generation_mode": _normalize_generation_mode(TRAJECTORY_GENERATION_MODE),
+        "generation_mode_configured": TRAJECTORY_GENERATION_MODE,
+        "teach_mode": TRAJECTORY_TEACH_MODE,
         "message": bridge_status["bridge_detail"],
     }
 
@@ -3047,6 +3755,7 @@ async def trajectory_safety_check(req: TrajectorySafetyCheckRequest) -> dict:
         ref_x=req.ref_x,
         ref_y=req.ref_y,
         ref_z=req.ref_z,
+        surface=req.surface,
     )
     if violations:
         return {
@@ -3281,7 +3990,11 @@ async def full_stack_start(req: FullStackStartRequest) -> dict:
     try:
         async with full_stack_lock:
             before = full_stack_service.status()
-            after = full_stack_service.start(use_rviz=req.use_rviz, load_moveit=req.load_moveit)
+            after = full_stack_service.start(
+                use_rviz=req.use_rviz,
+                load_moveit=req.load_moveit,
+                gazebo_gui=req.gazebo_gui,
+            )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
@@ -3439,6 +4152,25 @@ async def hardware_reset() -> dict:
     )
 
     return reset_status
+
+
+@app.post("/ros/hardware/force-kill-agent")
+async def hardware_force_kill_agent() -> dict:
+    async with hardware_lock:
+        result = await hardware_service.force_kill_agent()
+
+    await broadcast(
+        EventMessage(
+            type="hardware_agent_force_killed",
+            message="micro-ROS agent force-killed from Hardware Console",
+            payload=snapshot(),
+        )
+    )
+
+    return {
+        "result": result,
+        "hardware": hardware_service.status(),
+    }
 
 
 @app.get("/firmware/mdns-lookup")
@@ -3608,6 +4340,7 @@ async def system_cleanup(req: CleanupRequest) -> dict:
         "stopped_managed_sessions": True,
         "ports": {},
         "serial": {},
+        "ros": {},
     }
 
     current_pid = os.getpid()
@@ -3630,10 +4363,13 @@ async def system_cleanup(req: CleanupRequest) -> dict:
             "actions": serial_actions,
         }
 
+    if req.include_ros_cleanup:
+        report["ros"] = _kill_ros_processes_forcefully(current_pid)
+
     await broadcast(
         EventMessage(
             type="system_cleanup",
-            message="System cleanup executed (sessions stopped, stale port users flushed)",
+            message="System cleanup executed (sessions stopped, stale ports/serial/ROS flushed)",
             payload=snapshot(),
         )
     )

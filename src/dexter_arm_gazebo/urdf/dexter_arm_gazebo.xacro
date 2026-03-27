@@ -44,22 +44,30 @@
 
       <joint name="j7r1">
         <command_interface name="position"/>
-        <state_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">0.0</param>
+        </state_interface>
         <state_interface name="velocity"/>
       </joint>
       <joint name="j7r2">
         <command_interface name="position"/>
-        <state_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">-0.025</param>
+        </state_interface>
         <state_interface name="velocity"/>
       </joint>
       <joint name="j7l1">
         <command_interface name="position"/>
-        <state_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">-0.025</param>
+        </state_interface>
         <state_interface name="velocity"/>
       </joint>
       <joint name="j7l2">
         <command_interface name="position"/>
-        <state_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">0.0</param>
+        </state_interface>
         <state_interface name="velocity"/>
       </joint>
 
@@ -233,36 +241,20 @@
     </gazebo>
 
     <!-- Left Gripper Components -->
-    <gazebo reference="l6l_base1">
+    <gazebo reference="l7l1">
         <material>Gazebo/Orange</material>
     </gazebo>
 
-    <gazebo reference="l6l_rail">
-        <material>Gazebo/Orange</material>
-    </gazebo>
-
-    <gazebo reference="l6l_finger">
-        <material>Gazebo/Orange</material>
-    </gazebo>
-
-    <gazebo reference="l6l_finger2">
+    <gazebo reference="l7l2">
         <material>Gazebo/Orange</material>
     </gazebo>
 
     <!-- Right Gripper Components -->
-    <gazebo reference="l6r_base1">
+    <gazebo reference="l7r1">
         <material>Gazebo/Orange</material>
     </gazebo>
 
-    <gazebo reference="l6r_rail">
-        <material>Gazebo/Orange</material>
-    </gazebo>
-
-    <gazebo reference="l6r_finger">
-        <material>Gazebo/Orange</material>
-    </gazebo>
-
-    <gazebo reference="l6r_finger2">
+    <gazebo reference="l7r2">
         <material>Gazebo/Orange</material>
     </gazebo>
 

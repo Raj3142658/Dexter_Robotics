@@ -1,0 +1,15 @@
+# Request: shape parameters
+string arm                  # "left" or "right"
+string shape                # "arc", "line", "square", "rectangle", "triangle", "oval"
+float64 param1              # Primary: radius (arc/circle/oval_rx), length (line), side (square), width (rectangle), base (triangle)
+float64 param2              # Secondary: 0 (arc/line/square), height (rectangle/triangle), oval_rz
+float64 param3              # Tertiary: arc_angle_degrees (arc, default 360), 0 otherwise
+float64 ref_x               # Reference point X in world frame
+float64 ref_z               # Reference point Z in world frame
+int32 num_waypoints          # Waypoint density (default 50)
+---
+# Response
+bool success
+string message
+int32 waypoint_count
+float64 duration

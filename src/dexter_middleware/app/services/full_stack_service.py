@@ -147,11 +147,25 @@ class FullStackService:
             command=self._command,
         )
 
-    def start(self, use_rviz: bool = True, load_moveit: bool = True) -> FullStackStatus:
+    def start(
+        self,
+        use_rviz: bool = True,
+        load_moveit: bool = True,
+        gazebo_gui: bool = True,
+    ) -> FullStackStatus:
         current = self.status()
         if current.running:
             return current
 
+        return self._start_with_retry(use_rviz, load_moveit, gazebo_gui)
+
+    def _start_with_retry(
+        self,
+        use_rviz: bool,
+        load_moveit: bool,
+        gazebo_gui: bool,
+        allow_fallback: bool = True,
+    ) -> FullStackStatus:
         command = [
             "ros2",
             "launch",
@@ -159,6 +173,7 @@ class FullStackService:
             "gazebo_bringup.launch.py",
             f"use_rviz:={'true' if use_rviz else 'false'}",
             f"load_moveit:={'true' if load_moveit else 'false'}",
+            f"gazebo_gui:={'true' if gazebo_gui else 'false'}",
         ]
         shell_command = self._wrap_ros_command(" ".join(command))
         self._expect_rviz = use_rviz
@@ -196,6 +211,8 @@ class FullStackService:
             self._process = None
             self._command = None
             self._started_at = None
+            if gazebo_gui and allow_fallback and self._looks_like_gazebo_gui_crash(logs):
+                return self._start_with_retry(use_rviz, load_moveit, gazebo_gui=False, allow_fallback=False)
             raise RuntimeError(
                 "Full stack launch exited immediately. Ensure install/setup.bash is sourced and Gazebo/MoveIt dependencies are installed. "
                 f"Recent logs:\n{logs}"
@@ -218,10 +235,25 @@ class FullStackService:
 
         logs = self._tail_logs()
         self.stop()
+        if gazebo_gui and allow_fallback and self._looks_like_gazebo_gui_crash(logs):
+            return self._start_with_retry(use_rviz, load_moveit, gazebo_gui=False, allow_fallback=False)
         raise RuntimeError(
             "Full stack required processes did not stay up after launch. "
             f"Recent logs:\n{logs}"
         )
+
+    @staticmethod
+    def _looks_like_gazebo_gui_crash(logs: str) -> bool:
+        needles = (
+            "gz-gui",
+            "libEGL",
+            "libgallium",
+            "Segmentation fault",
+            "RenderSystem_GL3Plus",
+            "RenderThreadRhiOpenGL",
+        )
+        logs_lower = logs.lower()
+        return any(n.lower() in logs_lower for n in needles)
 
     def _collect_descendant_pids(self, root_pid: int) -> set[int]:
         try:

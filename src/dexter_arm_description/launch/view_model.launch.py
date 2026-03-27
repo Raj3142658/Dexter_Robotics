@@ -25,6 +25,13 @@ def generate_launch_description():
         description="Enable temporary left gripper calibration joints for slider tuning"
     )
 
+    # Snap-based terminals can inject GTK/GIO variables that break ROS GUI apps.
+    snap_safe_gui_env = {
+        "GTK_PATH": "",
+        "GIO_MODULE_DIR": "",
+        "XDG_DATA_DIRS": "",
+    }
+
     robot_description_content = ParameterValue(
         Command([
             FindExecutable(name="xacro"),
@@ -56,7 +63,8 @@ def generate_launch_description():
     joint_state_publisher_gui = Node(
         package="joint_state_publisher_gui",
         executable="joint_state_publisher_gui",
-        condition=IfCondition(gui)
+        condition=IfCondition(gui),
+        additional_env=snap_safe_gui_env,
     )
 
     rviz = Node(
@@ -69,13 +77,21 @@ def generate_launch_description():
                 "rviz",
                 "model.rviz"
             ])
-        ]
+        ],
+        additional_env=snap_safe_gui_env,
+    )
+
+    static_world_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        arguments=["0", "0", "0", "0", "0", "0", "world", "base_link"],
     )
 
     return LaunchDescription([
         declare_gui_arg,
         declare_calibration_mode_arg,
         robot_state_publisher,
+        static_world_tf,
         joint_state_publisher,
         joint_state_publisher_gui,
         rviz

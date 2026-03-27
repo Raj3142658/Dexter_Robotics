@@ -703,6 +703,60 @@ class HardwareBootstrapService:
             "message": "Hardware + agent stopped",
         }
 
+    async def force_kill_agent(self) -> dict:
+        """Forcefully kill any running micro-ROS agent process(es) without touching hardware launch."""
+        rows = self._ps_rows()
+        agent_pids: set[int] = set()
+
+        for pid, _ppid, cmd in rows:
+            if "micro_ros_agent" in cmd.lower():
+                agent_pids.add(pid)
+
+        if self._agent_process and self._agent_process.poll() is None:
+            agent_pids.add(self._agent_process.pid)
+
+        killed: list[int] = []
+        failed: list[int] = []
+
+        for pid in sorted(agent_pids):
+            try:
+                pgid = os.getpgid(pid)
+                if pgid == pid:
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    os.kill(pid, signal.SIGKILL)
+                killed.append(pid)
+                self._append_log(f"Force-killed micro-ROS agent PID {pid}")
+            except ProcessLookupError:
+                continue
+            except Exception as exc:
+                failed.append(pid)
+                self._append_log(f"Failed to force-kill micro-ROS agent PID {pid}: {exc}")
+
+        if self._agent_process:
+            self._agent_process = None
+        self._agent_command = None
+        self._agent_session_markers = []
+
+        if killed:
+            if self._hardware_process and self._hardware_process.poll() is None:
+                self._state = "failed"
+                self._phase = "agent_force_stopped"
+                self._message = "micro-ROS agent force-stopped while hardware launch is still running"
+            else:
+                self._state = "idle"
+                self._phase = "idle"
+                self._message = "micro-ROS agent force-stopped"
+                self._started_at = None
+                self._current_attempt = 0
+                self._max_attempts = 0
+
+        return {
+            "killed_pids": killed,
+            "failed_pids": failed,
+            "message": "micro-ROS agent force kill completed",
+        }
+
     def reset_status(self) -> dict:
         self._agent_command = None
         self._agent_transport = None

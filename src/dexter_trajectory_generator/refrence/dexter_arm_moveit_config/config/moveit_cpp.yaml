@@ -1,0 +1,16 @@
+# MoveIt configuration
+planning_scene_monitor_options:
+  name: "planning_scene_monitor"
+  robot_description: "robot_description"
+  joint_state_topic: "/joint_states"
+  attached_collision_object_topic: "/attached_collision_object"
+  publish_planning_scene_topic: "/publish_planning_scene"
+  monitored_planning_scene_topic: "/monitored_planning_scene"
+  wait_for_initial_state_timeout: 10.0
+  # Disable occupancy map monitor completely
+  publish_occupancy_map: false
+
+# Disable octomap/3D sensors to eliminate warnings
+octomap_frame: ""
+octomap_resolution: 0.0
+max_range: 0.0

@@ -1,0 +1,7 @@
+---
+string status
+int32 segment_count
+bool has_compiled_trajectory
+int32 total_waypoints
+float64 trajectory_duration
+string current_filename

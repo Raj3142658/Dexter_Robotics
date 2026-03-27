@@ -79,7 +79,10 @@ def generate_launch_description():
         package="robot_state_publisher",
         executable="robot_state_publisher",
         output="both",
-        parameters=[{"robot_description": robot_description_content}],
+        parameters=[
+            {"robot_description": robot_description_content},
+            {"use_sim_time": True},
+        ],
     )
 
     spawn_entity = Node(

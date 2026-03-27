@@ -1,0 +1,790 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="dexter_arm">
+
+    <!-- Pure robot geometry - NO ros2_control here -->
+    <!-- ros2_control is added by overlay xacros (gazebo/hardware) -->
+
+    <!-- Add dummy world link and fixed base_joint so base_link is not the URDF root -->
+    <link name="world" />
+    <joint name="base_joint" type="fixed">
+        <parent link="world" />
+        <child link="base_link" />
+        <origin rpy="0 0 0" xyz="0 0 0" />
+    </joint>
+
+    <!-- Base Link -->
+    <link name="base_link">
+        <inertial>
+            <origin xyz="1.11022302462516E-16 -1.31752248000438E-15 0.341229394008098" rpy="0 0 0" />
+            <mass value="1.57034512332414" />
+            <inertia ixx="0.014156986279529" ixy="-2.66546726272844E-17" ixz="8.0299293210262E-19"
+                     iyy="0.0167394307342646" iyz="5.42683623685501E-17" izz="0.00265284502209648" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/visual/base_link.STL" />
+            </geometry>
+            <material name="">
+                <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/collision/base_link.STL" />
+            </geometry>
+        </collision>
+    </link>
+
+    <!-- LEFT ARM -->
+    <!-- Link l1l -->
+    <link name="l1l">
+        <inertial>
+            <origin xyz="-2.06768076424502E-05 2.03830008427275E-15 0.0236812970530658" rpy="0 0 0" />
+            <mass value="0.0412610106656879" />
+            <inertia ixx="6.45452263055135E-06" ixy="-6.35156631471509E-20" ixz="5.67173895654462E-10"
+                     iyy="1.08529418395194E-05" iyz="1.55844839681327E-20" izz="8.35698735982534E-06" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/visual/l1l.STL" />
+            </geometry>
+            <material name="">
+                <color rgba="1 1 1 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/collision/l1l.STL" />
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j1l" type="revolute">
+        <origin xyz="-0.185 0 0.4755" rpy="0 0 0" />
+        <parent link="base_link" />
+        <child link="l1l" />
+        <axis xyz="0 0 -1" />
+        <limit lower="0" upper="3.14" effort="343.0" velocity="5" />
+    </joint>
+
+    <!-- Link l2l -->
+    <link name="l2l">
+        <inertial>
+            <origin xyz="0.0420000000000009 3.10255293678452E-14 -2.1094237467878E-15" rpy="0 0 0" />
+            <mass value="0.0412639771770677" />
+            <inertia ixx="2.03861872352237E-05" ixy="1.83850917637208E-20" ixz="1.29909905427445E-20"
+                     iyy="2.30212674355657E-05" iyz="-5.99177000134609E-22" izz="8.54833447441493E-06" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/visual/l2l.STL" />
+            </geometry>
+            <material name="">
+                <color rgba="1 1 1 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/collision/l2l.STL" />
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j2l" type="revolute">
+        <origin xyz="0 0 0.01" rpy="0 1.5707963267949 0" />
+        <parent link="l1l" />
+        <child link="l2l" />
+        <axis xyz="0 0 1" />
+        <limit lower="-1.57" upper="1.57" effort="343.0" velocity="5" />
+    </joint>
+
+    <!-- Link l3l -->
+    <link name="l3l">
+        <inertial>
+            <origin xyz="0.0425000000000011 -3.91231348532972E-10 -2.05391259555654E-15" rpy="0 0 0" />
+            <mass value="0.089584582698146" />
+            <inertia ixx="1.79494942674491E-05" ixy="-6.24250401827857E-21" ixz="-1.13434779133657E-09"
+                     iyy="2.28721177257845E-05" iyz="-4.51664802349514E-21" izz="1.35465501240485E-05" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/visual/l3l.STL" />
+            </geometry>
+            <material name="">
+                <color rgba="1 1 1 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/collision/l3l.STL" />
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j3l" type="revolute">
+        <origin xyz="0.0839999999999997 0 0" rpy="0 0 0" />
+        <parent link="l2l" />
+        <child link="l3l" />
+        <axis xyz="0 0 1" />
+        <limit lower="-1.57" upper="1.57" effort="343.0" velocity="5" />
+    </joint>
+
+    <!-- Link l4l -->
+    <link name="l4l">
+        <inertial>
+            <origin xyz="0.042000000005591 -9.7518096834389E-07 -1.55431223447522E-15" rpy="0 0 0" />
+            <mass value="0.041263977177068" />
+            <inertia ixx="2.03861872352239E-05" ixy="-2.09421927761261E-21" ixz="-3.48729676766912E-20"
+                     iyy="2.3021267435566E-05" iyz="-4.08634235879589E-21" izz="8.54833447441504E-06" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/visual/l4l.STL" />
+            </geometry>
+            <material name="">
+                <color rgba="1 1 1 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/collision/l4l.STL" />
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j4l" type="revolute">
+        <origin xyz="0.0849999999944108 0 0" rpy="0 0 0" />
+        <parent link="l3l" />
+        <child link="l4l" />
+        <axis xyz="0 0 1" />
+        <limit lower="-1.57" upper="1.57" effort="147.0" velocity="5" />
+    </joint>
+
+    <!-- Link l5l -->
+    <link name="l5l">
+        <inertial>
+            <origin xyz="0.04514989228191 -0.00246541434401295 0.000519380260867508" rpy="0 0 0" />
+            <mass value="0.0877350527785506" />
+            <inertia ixx="2.15592269641528E-05" ixy="1.08634480270297E-12" ixz="6.61837513500229E-07"
+                     iyy="4.21271739710682E-05" iyz="-2.81945782664923E-12" izz="2.9808063539004E-05" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/visual/l5l.STL" />
+            </geometry>
+            <material name="">
+                <color rgba="1 1 1 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/collision/l5l.STL" />
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j5l" type="revolute">
+        <origin xyz="0.083965824229058 0.0023959051595066 0" rpy="0 0 0" />
+        <parent link="l4l" />
+        <child link="l5l" />
+        <axis xyz="0 0 1" />
+        <limit lower="-1.57" upper="1.57" effort="147.0" velocity="5" />
+    </joint>
+
+    <!-- LEFT GRIPPER BASE - Using new gripper mesh -->
+    <link name="l6l">
+        <inertial>
+            <origin xyz="0 0 0.02" rpy="0 0 0" />
+            <mass value="0.05" />
+            <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/base.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.5 0.5 0.5 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/base.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j6l" type="revolute">
+        <origin xyz="0.110 -0.002 0.010" rpy="3.14159 1.57 0" />
+        <parent link="l5l" />
+        <child link="l6l" />
+        <axis xyz="0 0 1" />
+        <limit lower="-1.5708" upper="1.5708" effort="0.5" velocity="1.0" />
+    </joint>
+
+    <!-- LEFT GRIPPER - Base1 Layer (fixed below base) -->
+    <link name="l6l_base1">
+        <inertial>
+            <origin xyz="0 0 0.01" rpy="0 0 0" />
+            <mass value="0.03" />
+            <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/base1.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.5 0.5 0.5 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/base1.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j6l_base1_fixed" type="fixed">
+        <origin xyz="-0.021 0.015 0.004" rpy="3.142 0 0" />
+        <parent link="l6l" />
+        <child link="l6l_base1" />
+    </joint>
+
+    <!-- LEFT GRIPPER - Rail Layer (fixed to base1) -->
+    <link name="l6l_rail">
+        <inertial>
+            <origin xyz="0 0 0.01" rpy="0 0 0" />
+            <mass value="0.02" />
+            <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/rail.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.5 0.5 0.5 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/rail.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j6l_rail_fixed" type="fixed">
+        <origin xyz="-0.009 0.034 0.036" rpy="1.57 0 0" />
+        <parent link="l6l_base1" />
+        <child link="l6l_rail" />
+    </joint>
+
+    <!-- LEFT GRIPPER - Finger 1 Slider -->
+    <link name="l6l_finger_slider">
+        <inertial>
+            <mass value="0.001" />
+            <inertia ixx="0.000001" ixy="0" ixz="0" iyy="0.000001" iyz="0" izz="0.000001" />
+        </inertial>
+    </link>
+    
+    <joint name="j7l1" type="prismatic">
+        <origin xyz="0.000 0.022 0.021" rpy="0 -1.572 0" />
+        <parent link="l6l_rail" />
+        <child link="l6l_finger_slider" />
+        <axis xyz="0 0 1" />
+        <limit lower="-0.022" upper="0.0" effort="1.0" velocity="0.1" />
+    </joint>
+
+    <!-- LEFT GRIPPER - Finger (actual mesh) -->
+    <link name="l6l_finger">
+        <inertial>
+            <origin xyz="0 0 0.015" rpy="0 0 0" />
+            <mass value="0.01" />
+            <inertia ixx="0.000001" ixy="0" ixz="0" iyy="0.000001" iyz="0" izz="0.000001" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/finger.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.5 0.5 0.5 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/finger.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j6l_finger_fixed" type="fixed">
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <parent link="l6l_finger_slider" />
+        <child link="l6l_finger" />
+    </joint>
+
+    <!-- LEFT GRIPPER - Second Finger with Mimic Slider -->
+    <link name="l6l_finger2_slider">
+        <inertial>
+            <mass value="0.001" />
+            <inertia ixx="0.000001" ixy="0" ixz="0" iyy="0.000001" iyz="0" izz="0.000001" />
+        </inertial>
+    </link>
+    
+    <joint name="j7l2" type="prismatic">
+        <origin xyz="0.060 0.022 0.021" rpy="0 1.572 0" />
+        <parent link="l6l_rail" />
+        <child link="l6l_finger2_slider" />
+        <axis xyz="0 0 1" />
+        <limit lower="-0.022" upper="0.0" effort="1.0" velocity="0.1" />
+    </joint>
+
+    <!-- LEFT GRIPPER - Second Finger (actual mesh) -->
+    <link name="l6l_finger2">
+        <inertial>
+            <origin xyz="0 0 0.015" rpy="0 0 0" />
+            <mass value="0.01" />
+            <inertia ixx="0.000001" ixy="0" ixz="0" iyy="0.000001" iyz="0" izz="0.000001" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/finger.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.5 0.5 0.5 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/finger.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j6l_finger2_fixed" type="fixed">
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <parent link="l6l_finger2_slider" />
+        <child link="l6l_finger2" />
+    </joint>
+
+    <!-- LEFT ARM - Tool Center Point (TCP) -->
+    <link name="tool0_left">
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <mass value="0.001" />
+            <inertia ixx="0.000001" ixy="0" ixz="0" iyy="0.000001" iyz="0" izz="0.000001" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <sphere radius="0.008" />
+            </geometry>
+            <material name="tcp_orange">
+                <color rgba="1.0 0.5 0.0 1.0" />
+            </material>
+        </visual>
+    </link>
+
+    <joint name="tool0_left_fixed_joint" type="fixed">
+        <origin xyz="0 0 -0.08" rpy="0 0 0" />
+        <parent link="l6l" />
+        <child link="tool0_left" />
+    </joint>
+
+    <!-- RIGHT ARM -->
+    <!-- Link l1r -->
+    <link name="l1r">
+        <inertial>
+            <origin xyz="2.06768076422351E-05 2.42861286636753E-17 -0.0236812970530664" rpy="0 0 0" />
+            <mass value="0.0412610106656879" />
+            <inertia ixx="6.45452263055137E-06" ixy="1.58739512138535E-22" ixz="5.67173895648283E-10"
+                     iyy="1.08529418395194E-05" iyz="2.01570916178023E-20" izz="8.35698735982533E-06" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/visual/l1r.STL" />
+            </geometry>
+            <material name="">
+                <color rgba="1 1 1 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/collision/l1r.STL" />
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j1r" type="revolute">
+        <origin xyz="0.185 0 0.4755" rpy="3.14159265358979 0 0" />
+        <parent link="base_link" />
+        <child link="l1r" />
+        <axis xyz="0 0 1" />
+        <limit lower="0" upper="3.14" effort="343.0" velocity="5" />
+    </joint>
+
+    <!-- Link l2r -->
+    <link name="l2r">
+        <inertial>
+            <origin xyz="0.0419634783926228 0.00174598253548033 -0.000134261601576029" rpy="0 0 0" />
+            <mass value="0.0412639771770678" />
+            <inertia ixx="2.03907679743811E-05" ixy="-1.0944769820727E-07" ixz="8.41624870313865E-09"
+                     iyy="2.29316351108135E-05" iyz="-1.10603911559014E-06" izz="8.63338606000998E-06" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/visual/l2r.STL" />
+            </geometry>
+            <material name="">
+                <color rgba="1 1 1 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/collision/l2r.STL" />
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j2r" type="revolute">
+        <origin xyz="0 0 -0.01" rpy="0 -1.5707963267949 0" />
+        <parent link="l1r" />
+        <child link="l2r" />
+        <axis xyz="0 0 1" />
+        <limit lower="-1.57" upper="1.57" effort="343.0" velocity="5" />
+    </joint>
+
+    <!-- Link l3r -->
+    <link name="l3r">
+        <inertial>
+            <origin xyz="0.0423825306568636 0.00349075846009133 -0.000268452021535304" rpy="0 0 0" />
+            <mass value="0.0895845826981461" />
+            <inertia ixx="1.79494942674491E-05" ixy="-8.69786470348686E-11" ixz="-1.13100823456928E-09"
+                     iyy="2.28172890053359E-05" iyz="-7.12953540193635E-07" izz="1.36013788444972E-05" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/visual/l3r.STL" />
+            </geometry>
+            <material name="">
+                <color rgba="1 1 1 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/collision/l3r.STL" />
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j3r" type="revolute">
+        <origin xyz="0.0839999999999999 0 0" rpy="1.23048953327578E-05 -0.00097269686955413 -0.012649615042804" />
+        <parent link="l2r" />
+        <child link="l3r" />
+        <axis xyz="0.000972696716171088 1.23048895120007E-05 0.999999526854732" />
+        <limit lower="-1.57" upper="1.57" effort="343.0" velocity="5" />
+    </joint>
+
+    <!-- Link l4r -->
+    <link name="l4r">
+        <inertial>
+            <origin xyz="0.0418892012683609 0.00253473472586697 -0.000194930320374417" rpy="0 0 0" />
+            <mass value="0.0412639771770679" />
+            <inertia ixx="2.03862085728145E-05" ixy="-7.47631149425635E-09" ixz="5.74955547272901E-10"
+                     iyy="2.29361540950671E-05" iyz="-1.10647566127816E-06" izz="8.63342647732305E-06" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/visual/l4r.STL" />
+            </geometry>
+            <material name="">
+                <color rgba="1 1 1 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/collision/l4r.STL" />
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j4r" type="revolute">
+        <origin xyz="0.0849931593404333 0.00107518760394861 -8.26858361745036E-05" rpy="0 0 0" />
+        <parent link="l3r" />
+        <child link="l4r" />
+        <axis xyz="0.000972696716170201 1.23048895400181E-05 0.999999526854732" />
+        <limit lower="-1.57" upper="1.57" effort="147.0" velocity="5" />
+    </joint>
+
+    <!-- Link l5r -->
+    <link name="l5r">
+        <inertial>
+            <origin xyz="0.0450157419489307 0.00156312182677027 0.000400707468873628" rpy="0 0 0" />
+            <mass value="0.0877350517033452" />
+            <inertia ixx="2.15592267291585E-05" ixy="5.07473450979785E-08" ixz="6.59889552919724E-07"
+                     iyy="4.2054747689702E-05" iyz="-9.41789114948995E-07" izz="2.98804874954609E-05" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/visual/l5r.STL" />
+            </geometry>
+            <material name="">
+                <color rgba="1 1 1 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/collision/l5r.STL" />
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j5r" type="revolute">
+        <origin xyz="0.0839932398190739 0.00106253831537445 -8.1713061631225E-05" rpy="0 0.000203415098013994 0.00264506784365567" />
+        <parent link="l4r" />
+        <child link="l5r" />
+        <axis xyz="0.000769310840231528 0 0.999999704050751" />
+        <limit lower="-1.57" upper="1.57" effort="147.0" velocity="5" />
+    </joint>
+
+    <!-- RIGHT GRIPPER BASE - Using new gripper mesh -->
+    <link name="l6r">
+        <inertial>
+            <origin xyz="0 0 0.02" rpy="0 0 0" />
+            <mass value="0.05" />
+            <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/base.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.5 0.5 0.5 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/base.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j6r" type="revolute">
+        <origin xyz="0.110 0.002 0.010" rpy="3.14159 1.57 0" />
+        <parent link="l5r" />
+        <child link="l6r" />
+        <axis xyz="0 0 1" />
+        <limit lower="-1.5708" upper="1.5708" effort="0.5" velocity="1.0" />
+    </joint>
+
+    <!-- RIGHT GRIPPER - Base1 Layer (fixed below base) -->
+    <link name="l6r_base1">
+        <inertial>
+            <origin xyz="0 0 0.01" rpy="0 0 0" />
+            <mass value="0.03" />
+            <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/base1.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.5 0.5 0.5 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/base1.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j6r_base1_fixed" type="fixed">
+        <origin xyz="-0.021 0.015 0.004" rpy="3.142 0 0" />
+        <parent link="l6r" />
+        <child link="l6r_base1" />
+    </joint>
+
+    <!-- RIGHT GRIPPER - Rail Layer (fixed to base1) -->
+    <link name="l6r_rail">
+        <inertial>
+            <origin xyz="0 0 0.01" rpy="0 0 0" />
+            <mass value="0.02" />
+            <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/rail.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.5 0.5 0.5 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/rail.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j6r_rail_fixed" type="fixed">
+        <origin xyz="-0.009 0.034 0.036" rpy="1.57 0 0" />
+        <parent link="l6r_base1" />
+        <child link="l6r_rail" />
+    </joint>
+
+    <!-- RIGHT GRIPPER - Fingers -->
+
+    <!-- RIGHT GRIPPER - Finger 1 Slider -->
+    <link name="l6r_finger_slider">
+        <inertial>
+            <mass value="0.05" />
+            <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001" />
+        </inertial>
+    </link>
+    
+    <joint name="j7r1" type="prismatic">
+        <origin xyz="0.000 0.022 0.021" rpy="0 -1.572 0" />
+        <parent link="l6r_rail" />
+        <child link="l6r_finger_slider" />
+        <axis xyz="0 0 1" />
+        <limit lower="-0.022" upper="0.0" effort="10.0" velocity="0.1" />
+    </joint>
+
+    <!-- RIGHT GRIPPER - Finger (actual mesh) -->
+    <link name="l6r_finger">
+        <inertial>
+            <origin xyz="0 0 0.015" rpy="0 0 0" />
+            <mass value="0.01" />
+            <inertia ixx="0.000001" ixy="0" ixz="0" iyy="0.000001" iyz="0" izz="0.000001" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/finger.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.5 0.5 0.5 1" />
+            </material>
+        </visual>
+        <collision>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/finger.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+        </collision>
+    </link>
+
+    <joint name="j6r_finger_fixed" type="fixed">
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <parent link="l6r_finger_slider" />
+        <child link="l6r_finger" />
+    </joint>
+
+    <!-- RIGHT GRIPPER - Second Finger with Mimic Slider -->
+    <link name="l6r_finger2_slider">
+        <inertial>
+            <mass value="0.05" />
+            <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001" />
+        </inertial>
+    </link>
+    
+    <joint name="j7r2" type="prismatic">
+        <origin xyz="0.060 0.022 0.021" rpy="0 -1.572 0" />
+        <parent link="l6r_rail" />
+        <child link="l6r_finger2_slider" />
+        <axis xyz="0 0 1" />
+        <limit lower="-0.022" upper="0.022" effort="10.0" velocity="0.1" />
+    </joint>
+
+    <!-- RIGHT GRIPPER - Second Finger (actual mesh) -->
+    <link name="l6r_finger2">
+        <inertial>
+            <origin xyz="0 0 0.015" rpy="0 0 0" />
+            <mass value="0.01" />
+            <inertia ixx="0.000001" ixy="0" ixz="0" iyy="0.000001" iyz="0" izz="0.000001" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 3.14159 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/finger.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+            <material name="">
+                <color rgba="0.5 0.5 0.5 1" />
+            </material>
+        </visual>
+        <!-- <collision>
+            <origin xyz="0 0 0" rpy="3.14159 0 0" />
+            <geometry>
+                <mesh filename="package://dexter_arm_description/meshes/finger.stl" scale="0.001 0.001 0.001"/>
+            </geometry>
+        </collision> -->
+    </link>
+
+    <joint name="j6r_finger2_fixed" type="fixed">
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <parent link="l6r_finger2_slider" />
+        <child link="l6r_finger2" />
+    </joint>
+
+    <!-- RIGHT ARM - Tool Center Point (TCP) -->
+    <link name="tool0_right">
+        <inertial>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <mass value="0.001" />
+            <inertia ixx="0.000001" ixy="0" ixz="0" iyy="0.000001" iyz="0" izz="0.000001" />
+        </inertial>
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <sphere radius="0.008" />
+            </geometry>
+            <material name="tcp_cyan">
+                <color rgba="0.0 0.8 1.0 1.0" />
+            </material>
+        </visual>
+    </link>
+
+    <joint name="tool0_right_fixed_joint" type="fixed">
+        <origin xyz="0 0 -0.08" rpy="0 0 0" />
+        <parent link="l6r" />
+        <child link="tool0_right" />
+    </joint>
+
+</robot>

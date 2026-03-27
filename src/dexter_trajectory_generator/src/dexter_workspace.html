@@ -1,0 +1,1594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DEXTER — Workspace Analyzer</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #080c10;
+    --panel: #0d1318;
+    --border: #1a2a35;
+    --accent-l: #00e5ff;
+    --accent-r: #ff6b35;
+    --accent-g: #39ff14;
+    --text: #c8d8e0;
+    --text-dim: #4a6070;
+    --warn: #ffcc00;
+    --grid: #0f1e27;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Rajdhani', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,229,255,0.015) 2px, rgba(0,229,255,0.015) 4px);
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 16px 32px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    background: linear-gradient(90deg, #0a1520 0%, #080c10 60%);
+  }
+  .logo {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 22px;
+    letter-spacing: 6px;
+    color: var(--accent-l);
+    text-shadow: 0 0 20px rgba(0,229,255,0.5);
+  }
+  .logo span { color: var(--accent-r); }
+  .subtitle {
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+  .status-bar {
+    margin-left: auto;
+    display: flex;
+    gap: 20px;
+    align-items: center;
+  }
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent-g);
+    box-shadow: 0 0 8px var(--accent-g);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .status-text { font-family: 'Share Tech Mono', monospace; font-size: 11px; color: var(--text-dim); }
+
+  .main { display: grid; grid-template-columns: 340px 1fr; gap: 0; height: calc(100vh - 61px); }
+
+  /* LEFT SIDEBAR */
+  .sidebar {
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    background: var(--panel);
+  }
+  .sidebar::-webkit-scrollbar { width: 4px; }
+  .sidebar::-webkit-scrollbar-track { background: transparent; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .section-header {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 3px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-header::before {
+    content: '';
+    width: 3px; height: 10px;
+    background: var(--accent-l);
+    box-shadow: 0 0 6px var(--accent-l);
+  }
+
+  .arm-selector {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .arm-btn {
+    padding: 10px;
+    border: 1px solid var(--border);
+    background: transparent;
+    cursor: pointer;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    transition: all 0.2s;
+    color: var(--text-dim);
+  }
+  .arm-btn.left.active { border-color: var(--accent-l); color: var(--accent-l); background: rgba(0,229,255,0.06); box-shadow: inset 0 0 12px rgba(0,229,255,0.05); }
+  .arm-btn.right.active { border-color: var(--accent-r); color: var(--accent-r); background: rgba(255,107,53,0.06); box-shadow: inset 0 0 12px rgba(255,107,53,0.05); }
+  .arm-btn:hover { border-color: var(--text-dim); color: var(--text); }
+
+  .surface-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .surface-btn {
+    padding: 8px 6px;
+    border: 1px solid var(--border);
+    background: transparent;
+    cursor: pointer;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    transition: all 0.2s;
+    text-align: center;
+  }
+  .surface-btn.active { border-color: var(--accent-g); color: var(--accent-g); background: rgba(57,255,20,0.04); }
+  .surface-btn:hover { color: var(--text); border-color: var(--text-dim); }
+
+  .shape-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+  }
+  .shape-btn {
+    padding: 10px 6px;
+    border: 1px solid var(--border);
+    background: transparent;
+    cursor: pointer;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    transition: all 0.2s;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .shape-btn svg { opacity: 0.5; transition: opacity 0.2s; }
+  .shape-btn.active { border-color: var(--warn); color: var(--warn); background: rgba(255,204,0,0.04); }
+  .shape-btn.active svg { opacity: 1; }
+  .shape-btn:hover { color: var(--text); border-color: var(--text-dim); }
+
+  .param-block { display: flex; flex-direction: column; gap: 10px; }
+  .param-row { display: flex; flex-direction: column; gap: 4px; }
+  .param-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    display: flex;
+    justify-content: space-between;
+  }
+  .param-label span { color: var(--accent-l); }
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 2px;
+    background: var(--border);
+    outline: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--accent-l);
+    box-shadow: 0 0 8px var(--accent-l);
+    cursor: pointer;
+  }
+  input[type=range].right-arm::-webkit-slider-thumb { background: var(--accent-r); box-shadow: 0 0 8px var(--accent-r); }
+
+  .metrics-block { display: flex; flex-direction: column; gap: 6px; }
+  .metric-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.01);
+  }
+  .metric-label { font-size: 11px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; }
+  .metric-val {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 13px;
+    color: var(--accent-g);
+  }
+  .metric-val.warn { color: var(--warn); }
+  .metric-val.bad { color: #ff4444; }
+
+  .feasibility-bar {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .feasibility-fill {
+    height: 100%;
+    transition: width 0.4s, background 0.4s;
+    border-radius: 2px;
+  }
+
+  .info-box {
+    background: rgba(0,229,255,0.03);
+    border: 1px solid rgba(0,229,255,0.12);
+    padding: 12px;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--text-dim);
+  }
+  .info-box strong { color: var(--accent-l); font-weight: 600; }
+  .info-box.warn-box { background: rgba(255,204,0,0.03); border-color: rgba(255,204,0,0.2); }
+  .info-box.warn-box strong { color: var(--warn); }
+
+  /* RIGHT CANVAS AREA */
+  .canvas-area {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+  }
+  .canvas-toolbar {
+    border-bottom: 1px solid var(--border);
+    padding: 10px 20px;
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    background: var(--panel);
+  }
+  .view-btn {
+    padding: 5px 14px;
+    border: 1px solid var(--border);
+    background: transparent;
+    cursor: pointer;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    transition: all 0.2s;
+  }
+  .view-btn.active { border-color: var(--accent-l); color: var(--accent-l); }
+  .canvas-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    position: relative;
+  }
+  canvas {
+    display: block;
+    cursor: crosshair;
+  }
+  .canvas-label {
+    position: absolute;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 2px;
+  }
+  .canvas-label.tl { top: 28px; left: 28px; }
+  .canvas-label.tr { top: 28px; right: 28px; }
+
+  /* Tooltip */
+  #tooltip {
+    position: fixed;
+    background: #0d1318;
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: var(--accent-l);
+    pointer-events: none;
+    display: none;
+    z-index: 100;
+    letter-spacing: 1px;
+  }
+
+  /* ── GENERATE PANEL ──────────────────────────────────────────────── */
+  .generate-panel {
+    position: fixed;
+    right: 0; top: 61px; bottom: 0;
+    width: 380px;
+    background: #090e14;
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.3s cubic-bezier(0.16,1,0.3,1);
+    z-index: 500;
+  }
+  .generate-panel.open { transform: translateX(0); }
+
+  .gen-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--panel);
+    flex-shrink: 0;
+  }
+  .gen-title {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--accent-l);
+  }
+  .gen-close {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .gen-close:hover { border-color: var(--accent-r); color: var(--accent-r); }
+
+  .gen-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .gen-body::-webkit-scrollbar { width: 3px; }
+  .gen-body::-webkit-scrollbar-thumb { background: var(--border); }
+
+  .gen-field { display: flex; flex-direction: column; gap: 5px; }
+  .gen-field label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+  .gen-field input[type=text], .gen-field input[type=number], .gen-field select {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px;
+    padding: 7px 10px;
+    outline: none;
+    transition: border-color 0.2s;
+    width: 100%;
+  }
+  .gen-field input:focus, .gen-field select:focus { border-color: var(--accent-l); }
+  .gen-field select option { background: #0d1318; }
+
+  .gen-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  .gen-divider {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 3px;
+    color: var(--text-dim);
+    padding: 4px 0;
+    border-top: 1px solid var(--border);
+    margin-top: 4px;
+  }
+
+  .config-preview {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 10px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: #3a8a6a;
+    line-height: 1.6;
+    max-height: 140px;
+    overflow-y: auto;
+    white-space: pre;
+  }
+
+  .gen-footer {
+    padding: 14px 16px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: var(--panel);
+  }
+
+  .btn-generate {
+    width: 100%;
+    padding: 13px;
+    background: transparent;
+    border: 1px solid var(--accent-l);
+    color: var(--accent-l);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 3px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn-generate::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: var(--accent-l);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .btn-generate:hover::before { opacity: 0.06; }
+  .btn-generate:active::before { opacity: 0.12; }
+  .btn-generate:disabled {
+    border-color: var(--text-dim);
+    color: var(--text-dim);
+    cursor: not-allowed;
+  }
+  .btn-generate.running { border-color: var(--warn); color: var(--warn); animation: pulse 1s infinite; }
+  .btn-generate.done    { border-color: var(--accent-g); color: var(--accent-g); }
+  .btn-generate.error   { border-color: #ff4444; color: #ff4444; }
+
+  /* Terminal log */
+  .terminal {
+    background: #020508;
+    border: 1px solid var(--border);
+    padding: 10px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: #4a8060;
+    line-height: 1.6;
+    height: 160px;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  .terminal::-webkit-scrollbar { width: 3px; }
+  .terminal::-webkit-scrollbar-thumb { background: #1a3020; }
+  .term-line { display: block; }
+  .term-line.info  { color: #3a7050; }
+  .term-line.warn  { color: var(--warn); }
+  .term-line.error { color: #ff4444; }
+  .term-line.done  { color: var(--accent-g); }
+  .term-line.bridge { color: var(--accent-l); }
+
+  /* Job result bar */
+  .job-result {
+    display: none;
+    padding: 10px 12px;
+    border: 1px solid var(--accent-g);
+    background: rgba(57,255,20,0.03);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    color: var(--accent-g);
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .job-result.visible { display: flex; }
+  .btn-download {
+    background: var(--accent-g);
+    color: #000;
+    border: none;
+    padding: 5px 12px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 10px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    flex-shrink: 0;
+  }
+
+  /* Floating trigger button */
+  .gen-trigger {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    padding: 12px 22px;
+    background: #090e14;
+    border: 1px solid var(--accent-l);
+    color: var(--accent-l);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 0 20px rgba(0,229,255,0.15);
+    z-index: 400;
+  }
+  .gen-trigger:hover {
+    background: rgba(0,229,255,0.06);
+    box-shadow: 0 0 30px rgba(0,229,255,0.25);
+  }
+  .gen-trigger.server-down {
+    border-color: #ff4444;
+    color: #ff4444;
+    box-shadow: 0 0 20px rgba(255,68,68,0.15);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">DEX<span>TER</span></div>
+    <div class="subtitle">Dual Arm — Workspace Analyzer + Trajectory Generator v2.0</div>
+  </div>
+  <div class="status-bar">
+    <div class="status-dot" id="serverDot" style="background:#ff4444;box-shadow:0 0 8px #ff4444"></div>
+    <div class="status-text" id="serverStatus">BRIDGE: CONNECTING...</div>
+    <div style="width:1px;height:20px;background:var(--border);margin:0 4px"></div>
+    <div class="status-dot"></div>
+    <div class="status-text">URDF LOADED — 12 DOF</div>
+  </div>
+</header>
+
+<div class="main">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+
+    <!-- ARM SELECT -->
+    <div class="section-header">Arm Selection</div>
+    <div class="arm-selector">
+      <button class="arm-btn left active" onclick="selectArm('left')">◀ LEFT</button>
+      <button class="arm-btn right" onclick="selectArm('right')">RIGHT ▶</button>
+    </div>
+
+    <!-- SURFACE ORIENTATION -->
+    <div class="section-header">Work Surface Normal</div>
+    <div class="surface-grid">
+      <button class="surface-btn active" onclick="selectSurface('XY','Horizontal Table (Z up)')">XY — TOP</button>
+      <button class="surface-btn" onclick="selectSurface('XZ','Vertical Wall (Y front)')">XZ — FRONT</button>
+      <button class="surface-btn" onclick="selectSurface('YZ','Side Wall (X facing)')">YZ — SIDE</button>
+      <button class="surface-btn" onclick="selectSurface('XY45','45° Inclined (Z+X)')">45° INCL</button>
+    </div>
+    <div class="info-box" id="surfaceInfo">
+      <strong>Horizontal Table (Z up)</strong><br>
+      Tool Z-axis points down. Frenet tangent lies in XY plane. Best for flat welding/tracing on a table surface below the arm.
+    </div>
+
+    <!-- SHAPE SELECT -->
+    <div class="section-header">Shape</div>
+    <div class="shape-grid">
+      <button class="shape-btn active" onclick="selectShape('circle')">
+        <svg width="28" height="28" viewBox="0 0 28 28"><circle cx="14" cy="14" r="9" fill="none" stroke="#ffcc00" stroke-width="1.5"/></svg>
+        CIRCLE
+      </button>
+      <button class="shape-btn" onclick="selectShape('line')">
+        <svg width="28" height="28" viewBox="0 0 28 28"><line x1="4" y1="14" x2="24" y2="14" stroke="#ffcc00" stroke-width="1.5"/></svg>
+        LINE
+      </button>
+      <button class="shape-btn" onclick="selectShape('rectangle')">
+        <svg width="28" height="28" viewBox="0 0 28 28"><rect x="4" y="7" width="20" height="14" fill="none" stroke="#ffcc00" stroke-width="1.5"/></svg>
+        RECT
+      </button>
+      <button class="shape-btn" onclick="selectShape('arc')">
+        <svg width="28" height="28" viewBox="0 0 28 28"><path d="M5,20 A12,12 0 0,1 23,20" fill="none" stroke="#ffcc00" stroke-width="1.5"/></svg>
+        ARC
+      </button>
+      <button class="shape-btn" onclick="selectShape('zigzag')">
+        <svg width="28" height="28" viewBox="0 0 28 28"><polyline points="4,20 10,8 16,20 22,8" fill="none" stroke="#ffcc00" stroke-width="1.5"/></svg>
+        ZIGZAG
+      </button>
+      <button class="shape-btn" onclick="selectShape('spiral')">
+        <svg width="28" height="28" viewBox="0 0 28 28"><path d="M14,14 m5,0 a5,5 0 1,1 -5,5 a8,8 0 1,0 8,-8" fill="none" stroke="#ffcc00" stroke-width="1.5"/></svg>
+        SPIRAL
+      </button>
+    </div>
+
+    <!-- SHAPE PARAMETERS -->
+    <div class="section-header">Shape Parameters</div>
+    <div class="param-block" id="paramBlock"></div>
+
+    <!-- REFERENCE POINT (TCP position) -->
+    <div class="section-header">Reference Point (TCP in World)</div>
+    <div class="param-block">
+      <div class="param-row">
+        <div class="param-label">X OFFSET (m) <span id="refX_val">0.250</span></div>
+        <input type="range" id="refX" min="-0.45" max="0.45" step="0.005" value="0.25" oninput="updateRef()">
+      </div>
+      <div class="param-row">
+        <div class="param-label">Y OFFSET (m) <span id="refY_val">0.000</span></div>
+        <input type="range" id="refY" min="-0.45" max="0.45" step="0.005" value="0.00" oninput="updateRef()">
+      </div>
+      <div class="param-row">
+        <div class="param-label">Z HEIGHT (m) <span id="refZ_val">0.200</span></div>
+        <input type="range" id="refZ" min="0.00" max="0.90" step="0.005" value="0.20" oninput="updateRef()">
+      </div>
+    </div>
+
+    <!-- METRICS -->
+    <div class="section-header">Feasibility Analysis</div>
+    <div class="metrics-block" id="metricsBlock">
+      <div class="metric-row"><span class="metric-label">Max Reach</span><span class="metric-val" id="m_reach">—</span></div>
+      <div class="metric-row"><span class="metric-label">Ref Point Dist</span><span class="metric-val" id="m_dist">—</span></div>
+      <div class="metric-row"><span class="metric-label">Shape Fits</span><span class="metric-val" id="m_fits">—</span></div>
+      <div class="metric-row"><span class="metric-label">Farthest Point</span><span class="metric-val" id="m_far">—</span></div>
+      <div class="metric-row"><span class="metric-label">Nearest Point</span><span class="metric-val" id="m_near">—</span></div>
+      <div class="metric-row"><span class="metric-label">Singularity Risk</span><span class="metric-val" id="m_sing">—</span></div>
+    </div>
+    <div style="padding: 0 2px;">
+      <div class="param-label" style="margin-bottom:4px;">WORKSPACE USAGE <span id="m_usage_pct">—</span></div>
+      <div class="feasibility-bar"><div class="feasibility-fill" id="feasFill" style="width:0%"></div></div>
+    </div>
+
+    <!-- GUIDANCE -->
+    <div class="info-box warn-box" id="guidanceBox">
+      <strong>Configure above to see analysis</strong><br>
+      Select arm, surface, shape, and reference point to compute workspace feasibility.
+    </div>
+
+  </div>
+
+  <!-- CANVAS AREA -->
+  <div class="canvas-area">
+    <div class="canvas-toolbar">
+      <button class="view-btn active" onclick="setView('top')">TOP VIEW (XY)</button>
+      <button class="view-btn" onclick="setView('front')">FRONT VIEW (XZ)</button>
+      <button class="view-btn" onclick="setView('side')">SIDE VIEW (YZ)</button>
+      <span style="margin-left:auto; font-family:'Share Tech Mono',monospace; font-size:10px; color:var(--text-dim);">
+        ● LEFT ARM &nbsp;&nbsp; <span style="color:#ff6b35">●</span> RIGHT ARM &nbsp;&nbsp; <span style="color:#ffcc00">●</span> SHAPE
+      </span>
+    </div>
+    <div class="canvas-wrap">
+      <span class="canvas-label tl" id="lbl_tl"></span>
+      <span class="canvas-label tr" id="lbl_tr"></span>
+      <canvas id="cvs"></canvas>
+    </div>
+  </div>
+</div>
+
+<div id="tooltip"></div>
+
+<!-- ── FLOATING TRIGGER BUTTON ──────────────────────────────────────────── -->
+<button class="gen-trigger server-down" id="genTrigger" onclick="togglePanel()">
+  ⚡ GENERATE TRAJECTORY
+</button>
+
+<!-- ── GENERATE PANEL ────────────────────────────────────────────────────── -->
+<div class="generate-panel" id="genPanel">
+
+  <div class="gen-header">
+    <div class="gen-title">▶ TRAJECTORY GENERATOR</div>
+    <button class="gen-close" onclick="togglePanel()">✕ CLOSE</button>
+  </div>
+
+  <div class="gen-body">
+
+    <!-- CONFIG SUMMARY (auto-populated from workspace state) -->
+    <div class="gen-divider">AUTO-FILLED FROM WORKSPACE</div>
+
+    <div class="gen-row">
+      <div class="gen-field">
+        <label>Arm</label>
+        <select id="gen_arm">
+          <option value="left">LEFT</option>
+          <option value="right">RIGHT</option>
+        </select>
+      </div>
+      <div class="gen-field">
+        <label>Surface Normal</label>
+        <select id="gen_surface">
+          <option value="XY">[0,0,1] Horizontal</option>
+          <option value="XZ">[0,1,0] Front Wall</option>
+          <option value="YZ">[1,0,0] Side Wall</option>
+          <option value="XY45">[0,.7,.7] 45°</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="gen-row">
+      <div class="gen-field">
+        <label>Ref X (m)</label>
+        <input type="number" id="gen_rx" step="0.005" value="0.250">
+      </div>
+      <div class="gen-field">
+        <label>Ref Y (m)</label>
+        <input type="number" id="gen_ry" step="0.005" value="0.000">
+      </div>
+    </div>
+    <div class="gen-row">
+      <div class="gen-field">
+        <label>Ref Z (m)</label>
+        <input type="number" id="gen_rz" step="0.005" value="0.200">
+      </div>
+      <div class="gen-field">
+        <label>Tool Tilt (°)</label>
+        <input type="number" id="gen_tilt" step="1" value="0" min="0" max="30">
+      </div>
+    </div>
+
+    <!-- LIVE YAML PREVIEW -->
+    <div class="gen-divider">CONFIG PREVIEW</div>
+    <div class="config-preview" id="configPreview">— sync from workspace —</div>
+
+    <!-- EXECUTION PARAMS -->
+    <div class="gen-divider">EXECUTION PARAMETERS</div>
+
+    <div class="gen-row">
+      <div class="gen-field">
+        <label>Vel Scale (0–1)</label>
+        <input type="number" id="gen_vel" step="0.05" value="0.3" min="0.05" max="1.0">
+      </div>
+      <div class="gen-field">
+        <label>Acc Scale (0–1)</label>
+        <input type="number" id="gen_acc" step="0.05" value="0.1" min="0.05" max="1.0">
+      </div>
+    </div>
+
+    <div class="gen-row">
+      <div class="gen-field">
+        <label>EEF Step (m)</label>
+        <input type="number" id="gen_eef" step="0.001" value="0.005" min="0.001" max="0.05">
+      </div>
+      <div class="gen-field">
+        <label>Time Param</label>
+        <select id="gen_time">
+          <option value="totg">TOTG (safe)</option>
+          <option value="ruckig">RUCKIG (smooth)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="gen-field">
+      <label>Output Filename (optional)</label>
+      <input type="text" id="gen_fname" placeholder="auto-generated if blank">
+    </div>
+
+    <div class="gen-field">
+      <label>Description</label>
+      <input type="text" id="gen_desc" placeholder="e.g. Circle 80mm — left arm">
+    </div>
+
+    <!-- BRIDGE SERVER URL -->
+    <div class="gen-divider">BRIDGE SERVER</div>
+    <div class="gen-field">
+      <label>Server URL</label>
+      <input type="text" id="gen_url" value="http://localhost:8765">
+    </div>
+
+  </div><!-- /gen-body -->
+
+  <div class="gen-footer">
+
+    <!-- Job result (shown after success) -->
+    <div class="job-result" id="jobResult">
+      <span id="jobResultText">—</span>
+      <button class="btn-download" id="btnDownload" onclick="downloadResult()">↓ YAML</button>
+    </div>
+
+    <!-- Live terminal -->
+    <div class="terminal" id="terminal">
+      <span class="term-line bridge">[DEXTER] Ready. Configure workspace then click Generate.</span>
+    </div>
+
+    <button class="btn-generate" id="btnGenerate" onclick="generate()">
+      ⚡ GENERATE TRAJECTORY
+    </button>
+
+  </div>
+</div><!-- /generate-panel -->
+
+<script>
+// ─── ROBOT KINEMATICS (from URDF) ───────────────────────────────────────────
+const ARMS = {
+  left: {
+    color: '#00e5ff',
+    shoulder: [-0.185, 0, 0.4755], // j1l origin in world
+    links: [0.084, 0.085, 0.084, 0.110, 0.080], // L2..L6+TCP
+    minReach: 0.05,
+    singularityDeadzone: 0.06, // ~min safe distance from shoulder axis
+    label: 'LEFT ARM (j1l..j6l)'
+  },
+  right: {
+    color: '#ff6b35',
+    shoulder: [0.185, 0, 0.4755],  // j1r origin in world
+    links: [0.084, 0.085, 0.084, 0.110, 0.080],
+    minReach: 0.05,
+    singularityDeadzone: 0.06,
+    label: 'RIGHT ARM (j1r..j6r)'
+  }
+};
+// Total reach = sum of links
+function maxReach(arm) { return ARMS[arm].links.reduce((a,b)=>a+b,0); }
+// Realistic reachable: ~88% of full reach (joint limits taken into account)
+function effectiveReach(arm) { return maxReach(arm) * 0.88; }
+
+// ─── STATE ───────────────────────────────────────────────────────────────────
+let state = {
+  arm: 'left',
+  surface: 'XY',
+  surfaceLabel: 'Horizontal Table (Z up)',
+  shape: 'circle',
+  params: { radius: 0.08 },
+  ref: [0.25, 0.00, 0.20],
+  view: 'top'
+};
+
+// ─── SHAPE PARAM DEFINITIONS ─────────────────────────────────────────────────
+const SHAPE_PARAMS = {
+  circle:    [{ key:'radius', label:'Radius (m)', min:0.01, max:0.20, step:0.005, def:0.08 }],
+  line:      [{ key:'length', label:'Length (m)', min:0.02, max:0.35, step:0.005, def:0.15 }],
+  rectangle: [
+    { key:'width',  label:'Width (m)',  min:0.02, max:0.30, step:0.005, def:0.12 },
+    { key:'height', label:'Height (m)', min:0.02, max:0.25, step:0.005, def:0.08 }
+  ],
+  arc:       [
+    { key:'radius', label:'Radius (m)', min:0.02, max:0.20, step:0.005, def:0.10 },
+    { key:'angle',  label:'Arc Angle (°)', min:30, max:330, step:5, def:180 }
+  ],
+  zigzag:    [
+    { key:'length', label:'Total Length (m)', min:0.04, max:0.30, step:0.005, def:0.15 },
+    { key:'width',  label:'Zag Width (m)',    min:0.01, max:0.12, step:0.005, def:0.04 },
+    { key:'steps',  label:'Steps', min:2, max:10, step:1, def:4 }
+  ],
+  spiral:    [
+    { key:'r1', label:'Inner Radius (m)', min:0.01, max:0.10, step:0.005, def:0.03 },
+    { key:'r2', label:'Outer Radius (m)', min:0.04, max:0.20, step:0.005, def:0.10 },
+    { key:'turns', label:'Turns', min:1, max:5, step:0.5, def:2 }
+  ]
+};
+
+// Default params per shape
+const SHAPE_DEFAULTS = {
+  circle:    { radius:0.08 },
+  line:      { length:0.15 },
+  rectangle: { width:0.12, height:0.08 },
+  arc:       { radius:0.10, angle:180 },
+  zigzag:    { length:0.15, width:0.04, steps:4 },
+  spiral:    { r1:0.03, r2:0.10, turns:2 }
+};
+
+// ─── WAYPOINT GENERATORS (return [{x,y,z} in world space] ) ──────────────────
+function getWaypoints(shape, params, refPt, surface) {
+  let pts2d = [];
+  const N = 60;
+  switch(shape) {
+    case 'circle': {
+      const r = params.radius||0.08;
+      for(let i=0;i<=N;i++) {
+        const a = (i/N)*Math.PI*2;
+        pts2d.push([r*Math.cos(a), r*Math.sin(a)]);
+      }
+      break;
+    }
+    case 'line': {
+      const l = params.length||0.15;
+      for(let i=0;i<=N;i++) pts2d.push([-l/2 + (l*i/N), 0]);
+      break;
+    }
+    case 'rectangle': {
+      const w=params.width||0.12, h=params.height||0.08;
+      const corners=[[-w/2,-h/2],[w/2,-h/2],[w/2,h/2],[-w/2,h/2],[-w/2,-h/2]];
+      for(let s=0;s<4;s++){
+        for(let i=0;i<15;i++){
+          const t=i/15;
+          pts2d.push([corners[s][0]*(1-t)+corners[s+1][0]*t, corners[s][1]*(1-t)+corners[s+1][1]*t]);
+        }
+      }
+      break;
+    }
+    case 'arc': {
+      const r=params.radius||0.10, ang=(params.angle||180)*Math.PI/180;
+      for(let i=0;i<=N;i++){
+        const a=-ang/2+(i/N)*ang;
+        pts2d.push([r*Math.cos(a), r*Math.sin(a)]);
+      }
+      break;
+    }
+    case 'zigzag': {
+      const l=params.length||0.15, w=params.width||0.04, steps=Math.round(params.steps||4);
+      for(let i=0;i<=steps;i++){
+        const x=-l/2+(l*i/steps);
+        const y=(i%2===0)?-w/2:w/2;
+        pts2d.push([x,y]);
+      }
+      // interpolate
+      const raw=pts2d; pts2d=[];
+      for(let i=0;i<raw.length-1;i++){
+        for(let j=0;j<12;j++){
+          const t=j/12;
+          pts2d.push([raw[i][0]*(1-t)+raw[i+1][0]*t, raw[i][1]*(1-t)+raw[i+1][1]*t]);
+        }
+      }
+      pts2d.push(raw[raw.length-1]);
+      break;
+    }
+    case 'spiral': {
+      const r1=params.r1||0.03, r2=params.r2||0.10, turns=params.turns||2;
+      for(let i=0;i<=N;i++){
+        const t=i/N;
+        const r=r1+(r2-r1)*t;
+        const a=t*turns*Math.PI*2;
+        pts2d.push([r*Math.cos(a), r*Math.sin(a)]);
+      }
+      break;
+    }
+  }
+
+  // Map 2D → 3D based on surface
+  return pts2d.map(([u,v]) => {
+    let [rx,ry,rz] = refPt;
+    switch(surface) {
+      case 'XY':   return [rx+u, ry+v, rz];
+      case 'XZ':   return [rx+u, ry,   rz+v];
+      case 'YZ':   return [rx,   ry+u, rz+v];
+      case 'XY45': return [rx+u, ry+v*0.707, rz+v*0.707];
+      default:     return [rx+u, ry+v, rz];
+    }
+  });
+}
+
+// ─── FEASIBILITY ─────────────────────────────────────────────────────────────
+function dist3(a, b) {
+  return Math.sqrt((a[0]-b[0])**2+(a[1]-b[1])**2+(a[2]-b[2])**2);
+}
+function analyzeFeasibility() {
+  const arm = ARMS[state.arm];
+  const shoulder = arm.shoulder;
+  const maxR = effectiveReach(state.arm);
+  const minR = arm.minReach;
+
+  const wpts = getWaypoints(state.shape, state.params, state.ref, state.surface);
+  const dists = wpts.map(p => dist3(p, shoulder));
+  const maxD = Math.max(...dists);
+  const minD = Math.min(...dists);
+  const refDist = dist3(state.ref, shoulder);
+
+  const fits = maxD <= maxR && minD >= minR;
+  const singRisk = minD < (arm.singularityDeadzone + 0.05) ? 'HIGH' : minD < 0.12 ? 'MED' : 'LOW';
+  const usage = Math.min(100, (maxD / maxR) * 100);
+
+  return { maxR, minR, refDist, maxD, minD, fits, singRisk, usage, wpts };
+}
+
+// ─── UI UPDATE ───────────────────────────────────────────────────────────────
+function updateMetrics() {
+  const f = analyzeFeasibility();
+  const arm = ARMS[state.arm];
+
+  document.getElementById('m_reach').textContent = f.maxR.toFixed(3) + ' m';
+  document.getElementById('m_dist').textContent = f.refDist.toFixed(3) + ' m';
+
+  const fitsEl = document.getElementById('m_fits');
+  fitsEl.textContent = f.fits ? '✓ YES' : '✗ NO';
+  fitsEl.className = 'metric-val ' + (f.fits ? '' : 'bad');
+
+  document.getElementById('m_far').textContent = f.maxD.toFixed(3) + ' m';
+  const farEl = document.getElementById('m_far');
+  farEl.className = 'metric-val ' + (f.maxD > f.maxR ? 'bad' : f.maxD > f.maxR*0.85 ? 'warn' : '');
+
+  document.getElementById('m_near').textContent = f.minD.toFixed(3) + ' m';
+  const singEl = document.getElementById('m_sing');
+  singEl.textContent = f.singRisk;
+  singEl.className = 'metric-val ' + (f.singRisk==='HIGH'?'bad': f.singRisk==='MED'?'warn':'');
+
+  const fill = document.getElementById('feasFill');
+  fill.style.width = f.usage.toFixed(0) + '%';
+  fill.style.background = f.usage > 95 ? '#ff4444' : f.usage > 80 ? '#ffcc00' : '#39ff14';
+  document.getElementById('m_usage_pct').textContent = f.usage.toFixed(0) + '%';
+
+  // Guidance
+  let guide = '';
+  if (!f.fits) {
+    if (f.maxD > f.maxR) guide = `<strong>⚠ OUT OF REACH</strong><br>Farthest point is ${f.maxD.toFixed(3)}m but effective reach is ${f.maxR.toFixed(3)}m. Reduce shape size or move reference point closer.`;
+    if (f.minD < arm.minReach) guide += `<br><strong>⚠ TOO CLOSE</strong><br>Arm cannot reach into its own shoulder. Move reference point further out.`;
+  } else if (f.singRisk === 'HIGH') {
+    guide = `<strong>⚠ SINGULARITY RISK</strong><br>Nearest waypoint is only ${f.minD.toFixed(3)}m from shoulder. Arm may hit wrist singularity. Move shape further from shoulder.`;
+  } else if (f.usage > 88) {
+    guide = `<strong>⚡ NEAR WORKSPACE LIMIT</strong><br>Shape uses ${f.usage.toFixed(0)}% of effective reach. Joint velocities may spike near edges. Consider moving reference point closer.`;
+  } else {
+    guide = `<strong>✓ FEASIBLE</strong><br>Shape fits within workspace. Singularity risk: <strong>${f.singRisk}</strong>. Workspace usage: ${f.usage.toFixed(0)}%. Good configuration for Frenet-Serret trajectory generation.`;
+  }
+  document.getElementById('guidanceBox').innerHTML = guide;
+
+  draw();
+}
+
+// ─── CANVAS DRAWING ──────────────────────────────────────────────────────────
+let currentView = 'top';
+function setView(v) {
+  currentView = v;
+  document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  draw();
+}
+
+function projectPoint(p, view) {
+  switch(view) {
+    case 'top':   return [p[0], p[1]]; // XY
+    case 'front': return [p[0], p[2]]; // XZ (Z up on screen)
+    case 'side':  return [p[1], p[2]]; // YZ
+  }
+}
+
+function draw() {
+  const cvs = document.getElementById('cvs');
+  const wrap = cvs.parentElement;
+  const W = wrap.clientWidth - 40;
+  const H = wrap.clientHeight - 40;
+  cvs.width = W; cvs.height = H;
+  const ctx = cvs.getContext('2d');
+
+  // Background
+  ctx.fillStyle = '#080c10';
+  ctx.fillRect(0,0,W,H);
+
+  // Grid
+  const scale = Math.min(W,H) * 0.9;
+  const cx = W/2, cy = H/2;
+  const worldRange = 0.6; // ±0.6m shown
+  const s = scale / (worldRange*2);
+
+  function toScreen(wx, wy) {
+    return [cx + wx*s, cy - wy*s];
+  }
+
+  // Draw grid
+  ctx.strokeStyle = '#0f1e27';
+  ctx.lineWidth = 1;
+  for(let g=-0.5; g<=0.5; g+=0.1) {
+    const [sx1,sy1] = toScreen(g,-0.6);
+    const [sx2,sy2] = toScreen(g,0.6);
+    ctx.beginPath(); ctx.moveTo(sx1,sy1); ctx.lineTo(sx2,sy2); ctx.stroke();
+    const [sx3,sy3] = toScreen(-0.6,g);
+    const [sx4,sy4] = toScreen(0.6,g);
+    ctx.beginPath(); ctx.moveTo(sx3,sy3); ctx.lineTo(sx4,sy4); ctx.stroke();
+  }
+
+  // Axes
+  ctx.strokeStyle = '#1a2a35'; ctx.lineWidth = 1.5;
+  const [ax1,ay1]=toScreen(-0.6,0); const [ax2,ay2]=toScreen(0.6,0);
+  ctx.beginPath(); ctx.moveTo(ax1,ay1); ctx.lineTo(ax2,ay2); ctx.stroke();
+  const [bx1,by1]=toScreen(0,-0.6); const [bx2,by2]=toScreen(0,0.6);
+  ctx.beginPath(); ctx.moveTo(bx1,by1); ctx.lineTo(bx2,by2); ctx.stroke();
+
+  // Axis labels
+  const view = currentView;
+  const axes = { top:['X','Y'], front:['X','Z'], side:['Y','Z'] };
+  ctx.fillStyle = '#1a2a35'; ctx.font = '11px Share Tech Mono';
+  ctx.fillText(axes[view][0], cx+scale*0.46, cy+16);
+  ctx.fillText(axes[view][1], cx+8, cy-scale*0.44);
+
+  // Scale ticks
+  ctx.fillStyle = '#1a3040'; ctx.font = '9px Share Tech Mono';
+  for(let v=-0.5; v<=0.5; v+=0.2) {
+    const [tx,ty] = toScreen(v, 0);
+    ctx.fillText((v).toFixed(1), tx-10, cy+18);
+    const [tx2,ty2] = toScreen(0, v);
+    ctx.fillText((v).toFixed(1), cx+4, ty2+4);
+  }
+
+  // Draw BOTH arm workspaces as arcs
+  for(const [armKey, arm] of Object.entries(ARMS)) {
+    const maxR = effectiveReach(armKey);
+    const minR = arm.minReach;
+    const sp = projectPoint(arm.shoulder, view);
+    const [shx, shy] = toScreen(sp[0], sp[1]);
+
+    // Outer workspace circle (in current view plane)
+    const color = arm.color;
+    ctx.beginPath();
+    ctx.arc(shx, shy, maxR*s, 0, Math.PI*2);
+    ctx.strokeStyle = color+'33'; ctx.lineWidth=1;
+    ctx.setLineDash([4,4]); ctx.stroke(); ctx.setLineDash([]);
+
+    // Inner dead zone
+    ctx.beginPath();
+    ctx.arc(shx, shy, minR*s, 0, Math.PI*2);
+    ctx.strokeStyle = '#ff444433'; ctx.lineWidth=1;
+    ctx.setLineDash([2,4]); ctx.stroke(); ctx.setLineDash([]);
+
+    // Workspace fill
+    ctx.beginPath();
+    ctx.arc(shx, shy, maxR*s, 0, Math.PI*2);
+    ctx.arc(shx, shy, minR*s, 0, Math.PI*2, true);
+    ctx.fillStyle = color+'08'; ctx.fill();
+
+    // Shoulder marker
+    ctx.beginPath(); ctx.arc(shx, shy, 5, 0, Math.PI*2);
+    ctx.fillStyle = color+'66'; ctx.fill();
+    ctx.fillStyle = color;
+    ctx.font = '9px Share Tech Mono';
+    ctx.fillText(armKey==='left'?'L':'R', shx+8, shy+4);
+  }
+
+  // ── BASE LINK ──
+  const bp = projectPoint([0,0,0], view);
+  const [bpx,bpy] = toScreen(bp[0], bp[1]);
+  ctx.beginPath(); ctx.arc(bpx,bpy,7,0,Math.PI*2);
+  ctx.strokeStyle = '#ffffff33'; ctx.lineWidth=1; ctx.stroke();
+  ctx.fillStyle = '#ffffff15'; ctx.fill();
+  ctx.fillStyle='#4a6070'; ctx.font='9px Share Tech Mono';
+  ctx.fillText('BASE', bpx+9, bpy+4);
+
+  // ── REF POINT ──
+  const f = analyzeFeasibility();
+  const rp = projectPoint(state.ref, view);
+  const [rpx,rpy] = toScreen(rp[0], rp[1]);
+  ctx.beginPath(); 
+  ctx.moveTo(rpx-8, rpy); ctx.lineTo(rpx+8, rpy);
+  ctx.moveTo(rpx, rpy-8); ctx.lineTo(rpx, rpy+8);
+  ctx.strokeStyle = '#ffffff88'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.fillStyle='#ffffffaa'; ctx.font='9px Share Tech Mono';
+  ctx.fillText('REF', rpx+6, rpy-6);
+
+  // ── WAYPOINTS / SHAPE ──
+  const wpts = f.wpts;
+  if(wpts.length > 1) {
+    const arm = ARMS[state.arm];
+    const maxR = effectiveReach(state.arm);
+
+    ctx.beginPath();
+    for(let i=0; i<wpts.length; i++) {
+      const pp = projectPoint(wpts[i], view);
+      const [sx,sy] = toScreen(pp[0],pp[1]);
+      const d = dist3(wpts[i], arm.shoulder);
+      if(i===0) ctx.moveTo(sx,sy); else ctx.lineTo(sx,sy);
+    }
+    ctx.strokeStyle = '#ffcc00'; ctx.lineWidth=2; ctx.stroke();
+
+    // Color each waypoint by feasibility
+    for(let i=0; i<wpts.length; i+=3) {
+      const pp = projectPoint(wpts[i], view);
+      const [sx,sy] = toScreen(pp[0],pp[1]);
+      const d = dist3(wpts[i], arm.shoulder);
+      const ok = d <= maxR && d >= arm.minReach;
+      ctx.beginPath(); ctx.arc(sx,sy,2.5,0,Math.PI*2);
+      ctx.fillStyle = ok ? '#ffcc00bb' : '#ff4444';
+      ctx.fill();
+    }
+  }
+
+  // ── DISTANCE LINE from shoulder to ref ──
+  const armNow = ARMS[state.arm];
+  const sp2 = projectPoint(armNow.shoulder, view);
+  const [shx2,shy2] = toScreen(sp2[0], sp2[1]);
+  ctx.beginPath(); ctx.moveTo(shx2,shy2); ctx.lineTo(rpx,rpy);
+  ctx.strokeStyle = armNow.color+'44'; ctx.lineWidth=1;
+  ctx.setLineDash([3,5]); ctx.stroke(); ctx.setLineDash([]);
+
+  // ── CORNER LABELS ──
+  document.getElementById('lbl_tl').textContent = `VIEW: ${view.toUpperCase()} PLANE`;
+  document.getElementById('lbl_tr').textContent = `ARM: ${state.arm.toUpperCase()} | MAX REACH: ${effectiveReach(state.arm).toFixed(3)}m`;
+}
+
+// ─── PARAM UI BUILDER ────────────────────────────────────────────────────────
+function buildParams() {
+  const defs = SHAPE_PARAMS[state.shape];
+  const block = document.getElementById('paramBlock');
+  block.innerHTML = '';
+  for(const p of defs) {
+    const val = state.params[p.key] !== undefined ? state.params[p.key] : p.def;
+    block.innerHTML += `
+      <div class="param-row">
+        <div class="param-label">${p.label} <span id="p_${p.key}_val">${val}</span></div>
+        <input type="range" id="p_${p.key}" min="${p.min}" max="${p.max}" step="${p.step}" value="${val}"
+          oninput="updateParam('${p.key}', this.value)">
+      </div>`;
+  }
+}
+
+// ─── EVENT HANDLERS ──────────────────────────────────────────────────────────
+function selectArm(arm) {
+  state.arm = arm;
+  document.querySelectorAll('.arm-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelector(`.arm-btn.${arm}`).classList.add('active');
+  updateMetrics();
+}
+
+const SURFACE_INFO = {
+  'XY': '<strong>Horizontal Table (Z up)</strong><br>Tool Z-axis points down. Frenet tangent lies in XY plane. Best for flat welding/tracing on a table surface below the arm.',
+  'XZ': '<strong>Vertical Wall (Y front)</strong><br>Tool Z-axis points outward (Y). Tangent moves in XZ plane. Good for writing on a vertical board or wall welding.',
+  'YZ': '<strong>Side Wall (X facing)</strong><br>Tool Z-axis points in X direction. Tangent moves in YZ plane. Useful for shapes on a side-facing surface.',
+  'XY45': '<strong>45° Inclined Plane</strong><br>Surface normal tilts 45° between Z and Y. Tool must maintain 45° approach. More challenging orientation control.'
+};
+function selectSurface(s, label) {
+  state.surface = s; state.surfaceLabel = label;
+  document.querySelectorAll('.surface-btn').forEach(b=>b.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('surfaceInfo').innerHTML = SURFACE_INFO[s];
+  updateMetrics();
+}
+
+function selectShape(s) {
+  state.shape = s;
+  state.params = {...SHAPE_DEFAULTS[s]};
+  document.querySelectorAll('.shape-btn').forEach(b=>b.classList.remove('active'));
+  event.target.classList.add('active');
+  buildParams();
+  updateMetrics();
+}
+
+function updateParam(key, val) {
+  const numVal = parseFloat(val);
+  state.params[key] = numVal;
+  const el = document.getElementById(`p_${key}_val`);
+  if(el) el.textContent = numVal.toFixed(key==='steps'||key==='turns'?1:3);
+  updateMetrics();
+}
+
+function updateRef() {
+  state.ref = [
+    parseFloat(document.getElementById('refX').value),
+    parseFloat(document.getElementById('refY').value),
+    parseFloat(document.getElementById('refZ').value)
+  ];
+  document.getElementById('refX_val').textContent = state.ref[0].toFixed(3);
+  document.getElementById('refY_val').textContent = state.ref[1].toFixed(3);
+  document.getElementById('refZ_val').textContent = state.ref[2].toFixed(3);
+  updateMetrics();
+}
+
+// ─── INIT ────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', draw);
+buildParams();
+updateMetrics();
+syncGenPanel();   // pre-fill generate panel from workspace state
+pingServer();     // check if bridge server is up
+setInterval(pingServer, 4000);
+
+// ─── BRIDGE SERVER ───────────────────────────────────────────────────────────
+let serverOnline  = false;
+let activeJobId   = null;
+let activeEventSrc = null;
+
+function getServerUrl() {
+  return (document.getElementById('gen_url').value || 'http://localhost:8765').replace(/\/$/, '');
+}
+
+async function pingServer() {
+  const url = getServerUrl();
+  try {
+    const r = await fetch(`${url}/ping`, { signal: AbortSignal.timeout(2000) });
+    if (r.ok) {
+      setServerStatus(true);
+      return;
+    }
+  } catch(e) {}
+  setServerStatus(false);
+}
+
+function setServerStatus(online) {
+  serverOnline = online;
+  const dot  = document.getElementById('serverDot');
+  const txt  = document.getElementById('serverStatus');
+  const trig = document.getElementById('genTrigger');
+  if (online) {
+    dot.style.background    = 'var(--accent-g)';
+    dot.style.boxShadow     = '0 0 8px var(--accent-g)';
+    txt.textContent         = 'BRIDGE: ONLINE';
+    trig.classList.remove('server-down');
+  } else {
+    dot.style.background    = '#ff4444';
+    dot.style.boxShadow     = '0 0 8px #ff4444';
+    txt.textContent         = 'BRIDGE: OFFLINE';
+    trig.classList.add('server-down');
+  }
+}
+
+// ─── PANEL OPEN/CLOSE ─────────────────────────────────────────────────────────
+function togglePanel() {
+  const panel = document.getElementById('genPanel');
+  panel.classList.toggle('open');
+  if (panel.classList.contains('open')) syncGenPanel();
+}
+
+// ─── SYNC GEN PANEL FROM WORKSPACE STATE ────────────────────────────────────
+// Called whenever workspace state changes OR panel opens
+function syncGenPanel() {
+  document.getElementById('gen_arm').value = state.arm;
+
+  const surfMap = { 'XY':'XY', 'XZ':'XZ', 'YZ':'YZ', 'XY45':'XY45' };
+  document.getElementById('gen_surface').value = surfMap[state.surface] || 'XY';
+
+  document.getElementById('gen_rx').value = state.ref[0].toFixed(3);
+  document.getElementById('gen_ry').value = state.ref[1].toFixed(3);
+  document.getElementById('gen_rz').value = state.ref[2].toFixed(3);
+
+  // Auto-fill description
+  const descEl = document.getElementById('gen_desc');
+  if (!descEl.value) {
+    descEl.value = `${state.shape} — ${state.arm} arm`;
+  }
+
+  updateConfigPreview();
+}
+
+// ─── LIVE CONFIG YAML PREVIEW ────────────────────────────────────────────────
+function buildConfigObject() {
+  const surfNormals = {
+    'XY':   [0,0,1],
+    'XZ':   [0,1,0],
+    'YZ':   [1,0,0],
+    'XY45': [0,0.707,0.707],
+  };
+  const surf = document.getElementById('gen_surface').value;
+
+  // Build shape object — map HTML param keys to Python keys
+  const shapeKeyMap = {
+    'r1': 'inner_radius',
+    'r2': 'outer_radius',
+    'width': 'zag_width',   // only for zigzag; rect uses 'width' directly
+  };
+
+  const shapeObj = { type: state.shape };
+  // For zigzag, 'width' in HTML state.params → 'zag_width' in Python
+  for (const [k, v] of Object.entries(state.params)) {
+    let pyKey = k;
+    if (state.shape === 'zigzag' && k === 'width') pyKey = 'zag_width';
+    if (state.shape === 'spiral' && k === 'r1') pyKey = 'inner_radius';
+    if (state.shape === 'spiral' && k === 'r2') pyKey = 'outer_radius';
+    if (state.shape === 'arc' && k === 'angle') {
+      // arc: convert single 'angle' → start/end
+      shapeObj['start_angle_deg'] = -(v / 2);
+      shapeObj['end_angle_deg']   =  (v / 2);
+      continue;
+    }
+    shapeObj[pyKey] = v;
+  }
+  shapeObj['n_points'] = 100;
+
+  return {
+    arm: document.getElementById('gen_arm').value,
+    surface: {
+      normal: surfNormals[surf] || [0,0,1],
+      tool_tilt_deg: parseFloat(document.getElementById('gen_tilt').value) || 0,
+    },
+    reference_point: {
+      x: parseFloat(document.getElementById('gen_rx').value),
+      y: parseFloat(document.getElementById('gen_ry').value),
+      z: parseFloat(document.getElementById('gen_rz').value),
+    },
+    shape: shapeObj,
+    execution: {
+      eef_step:                    parseFloat(document.getElementById('gen_eef').value),
+      jump_threshold:              0.0,
+      max_velocity_scaling:        parseFloat(document.getElementById('gen_vel').value),
+      max_acceleration_scaling:    parseFloat(document.getElementById('gen_acc').value),
+      avoid_collisions:            true,
+      time_param_method:           document.getElementById('gen_time').value,
+    },
+    description: document.getElementById('gen_desc').value,
+    output_filename: document.getElementById('gen_fname').value || null,
+  };
+}
+
+function updateConfigPreview() {
+  try {
+    const cfg = buildConfigObject();
+    // Pretty-print as YAML-like text
+    const lines = [
+      `arm: ${cfg.arm}`,
+      `surface:`,
+      `  normal: [${cfg.surface.normal.join(', ')}]`,
+      `  tool_tilt_deg: ${cfg.surface.tool_tilt_deg}`,
+      `reference_point:`,
+      `  x: ${cfg.reference_point.x}`,
+      `  y: ${cfg.reference_point.y}`,
+      `  z: ${cfg.reference_point.z}`,
+      `shape:`,
+      ...Object.entries(cfg.shape).map(([k,v]) => `  ${k}: ${v}`),
+    ];
+    document.getElementById('configPreview').textContent = lines.join('\n');
+  } catch(e) {
+    document.getElementById('configPreview').textContent = `Error: ${e.message}`;
+  }
+}
+
+// Update preview whenever any gen field changes
+document.addEventListener('change', e => {
+  if (e.target.closest('.gen-body')) updateConfigPreview();
+});
+document.addEventListener('input', e => {
+  if (e.target.closest('.gen-body')) updateConfigPreview();
+});
+
+// ─── TERMINAL ────────────────────────────────────────────────────────────────
+function termLog(msg, cls = 'info') {
+  const term = document.getElementById('terminal');
+  const span = document.createElement('span');
+  span.className = `term-line ${cls}`;
+  span.textContent = msg;
+  term.appendChild(span);
+  term.appendChild(document.createElement('br'));
+  term.scrollTop = term.scrollHeight;
+}
+
+function termClear() {
+  document.getElementById('terminal').innerHTML = '';
+}
+
+// ─── GENERATE ────────────────────────────────────────────────────────────────
+async function generate() {
+  if (!serverOnline) {
+    termLog('[ERROR] Bridge server is offline. Run: python3 bridge_server.py', 'error');
+    return;
+  }
+
+  // Feasibility check
+  const f = analyzeFeasibility();
+  if (!f.fits) {
+    termLog('[WARN] Shape may be outside workspace. Proceeding anyway...', 'warn');
+  }
+
+  const cfg = buildConfigObject();
+  const url = getServerUrl();
+  const btn = document.getElementById('btnGenerate');
+
+  termClear();
+  termLog(`[BRIDGE] Sending config to ${url}/generate`, 'bridge');
+  termLog(`[BRIDGE] Arm: ${cfg.arm} | Shape: ${cfg.shape.type}`, 'bridge');
+  termLog(`[BRIDGE] Ref: (${cfg.reference_point.x}, ${cfg.reference_point.y}, ${cfg.reference_point.z})`, 'bridge');
+
+  btn.textContent  = '⏳ RUNNING...';
+  btn.className    = 'btn-generate running';
+  btn.disabled     = true;
+
+  document.getElementById('jobResult').classList.remove('visible');
+
+  try {
+    const res = await fetch(`${url}/generate`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(cfg),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      termLog(`[ERROR] Server returned ${res.status}: ${err}`, 'error');
+      resetBtn('error');
+      return;
+    }
+
+    const job = await res.json();
+    activeJobId = job.job_id;
+    termLog(`[BRIDGE] Job queued: ${job.job_id}`, 'bridge');
+    termLog(`[BRIDGE] Output: ${job.output_file}`, 'bridge');
+
+    // Open SSE stream for live logs
+    streamLogs(job.job_id);
+
+  } catch(e) {
+    termLog(`[ERROR] ${e.message}`, 'error');
+    resetBtn('error');
+  }
+}
+
+function streamLogs(jobId) {
+  const url = getServerUrl();
+  if (activeEventSrc) activeEventSrc.close();
+
+  activeEventSrc = new EventSource(`${url}/stream/${jobId}`);
+
+  activeEventSrc.onmessage = e => {
+    const data = JSON.parse(e.data);
+    if (data.line === '__DONE__') {
+      activeEventSrc.close();
+      const job = data.job;
+      if (job.status === 'done') {
+        onJobDone(job);
+      } else {
+        termLog('[ERROR] Node reported an error. Check ROS2 logs.', 'error');
+        resetBtn('error');
+      }
+      return;
+    }
+
+    // Classify line for coloring
+    const line = data.line;
+    let cls = 'info';
+    if (line.includes('[BRIDGE]'))  cls = 'bridge';
+    else if (line.includes('WARN') || line.includes('warn')) cls = 'warn';
+    else if (line.includes('ERROR') || line.includes('error')) cls = 'error';
+    else if (line.includes('saved') || line.includes('done')) cls = 'done';
+    termLog(line, cls);
+  };
+
+  activeEventSrc.onerror = () => {
+    activeEventSrc.close();
+    // Poll final status
+    pollJobStatus(jobId);
+  };
+}
+
+async function pollJobStatus(jobId) {
+  const url = getServerUrl();
+  for (let i = 0; i < 30; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    try {
+      const r = await fetch(`${url}/jobs/${jobId}`);
+      const job = await r.json();
+      if (job.status === 'done') { onJobDone(job); return; }
+      if (job.status === 'error') { termLog('[ERROR] Job failed.', 'error'); resetBtn('error'); return; }
+    } catch(e) {}
+  }
+  termLog('[WARN] Timed out waiting for job completion.', 'warn');
+  resetBtn('error');
+}
+
+function onJobDone(job) {
+  const dur  = job.duration  ? job.duration.toFixed(2) + 's'    : '—';
+  const wpts = job.waypoints ? job.waypoints + ' pts'           : '—';
+  const pct  = job.fraction  ? job.fraction.toFixed(1) + '%'    : '—';
+
+  termLog(`[DONE] ✓ Saved: ${job.output_file}`, 'done');
+  termLog(`[DONE] Duration: ${dur} | Waypoints: ${wpts} | Coverage: ${pct}`, 'done');
+
+  // Show result bar
+  const resultBar = document.getElementById('jobResult');
+  document.getElementById('jobResultText').textContent =
+    `${job.output_file}  •  ${wpts}  •  ${dur}`;
+  resultBar.classList.add('visible');
+
+  const btn = document.getElementById('btnGenerate');
+  btn.textContent = '✓ DONE — GENERATE AGAIN';
+  btn.className   = 'btn-generate done';
+  btn.disabled    = false;
+  activeJobId     = job.job_id;
+}
+
+function resetBtn(state = '') {
+  const btn = document.getElementById('btnGenerate');
+  btn.textContent = state === 'error' ? '✗ ERROR — RETRY' : '⚡ GENERATE TRAJECTORY';
+  btn.className   = `btn-generate ${state}`;
+  btn.disabled    = false;
+}
+
+async function downloadResult() {
+  if (!activeJobId) return;
+  const url = getServerUrl();
+  window.location.href = `${url}/download/${activeJobId}`;
+}
+
+// ─── KEEP GEN PANEL SYNCED when workspace changes ────────────────────────────
+const _origSelectArm     = selectArm;
+const _origSelectSurface = selectSurface;
+const _origUpdateRef     = updateRef;
+
+selectArm = function(arm) {
+  _origSelectArm(arm);
+  document.getElementById('gen_arm').value = arm;
+  updateConfigPreview();
+};
+
+// Patch updateRef to also sync gen panel
+updateRef = function() {
+  _origUpdateRef();
+  document.getElementById('gen_rx').value = state.ref[0].toFixed(3);
+  document.getElementById('gen_ry').value = state.ref[1].toFixed(3);
+  document.getElementById('gen_rz').value = state.ref[2].toFixed(3);
+  updateConfigPreview();
+};
+</script>
+</body>
+</html>

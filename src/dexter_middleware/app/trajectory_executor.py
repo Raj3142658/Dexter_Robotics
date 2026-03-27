@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 import os
 import socket
 import time
@@ -252,6 +253,196 @@ class _RosTopicSender(_BaseSender):
                 self._rclpy.shutdown()
 
 
+class _RosActionExecutor:
+    def __init__(self) -> None:
+        import rclpy  # type: ignore
+        from rclpy.action import ActionClient  # type: ignore
+        from control_msgs.action import FollowJointTrajectory  # type: ignore
+        from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint  # type: ignore
+        from builtin_interfaces.msg import Duration  # type: ignore
+
+        self._rclpy = rclpy
+        self._ActionClient = ActionClient
+        self._FollowJointTrajectory = FollowJointTrajectory
+        self._JointTrajectory = JointTrajectory
+        self._JointTrajectoryPoint = JointTrajectoryPoint
+        self._Duration = Duration
+
+        self._owned_context = not bool(rclpy.ok())
+        if self._owned_context:
+            rclpy.init(args=None)
+
+        self._node = rclpy.create_node("dexter_trajectory_execute_action")
+
+        self._left_controller = os.getenv("DEXTER_TRAJECTORY_EXECUTE_ROS_ACTION_LEFT", "left_arm_controller").strip()
+        self._right_controller = os.getenv("DEXTER_TRAJECTORY_EXECUTE_ROS_ACTION_RIGHT", "right_arm_controller").strip()
+        self._left_gripper_controller = os.getenv("DEXTER_TRAJECTORY_EXECUTE_ROS_ACTION_LEFT_GRIPPER", "left_arm_gripper").strip()
+        self._right_gripper_controller = os.getenv("DEXTER_TRAJECTORY_EXECUTE_ROS_ACTION_RIGHT_GRIPPER", "right_arm_gripper").strip()
+        self._include_grippers = _truthy_env("DEXTER_TRAJECTORY_EXECUTE_ROS_ACTION_INCLUDE_GRIPPERS", True)
+        self._goal_tolerance = max(0.0, _coerce_float(os.getenv("DEXTER_TRAJECTORY_EXECUTE_ROS_ACTION_GOAL_TOLERANCE_SEC", "1.0"), 1.0))
+
+        self._clients: dict[str, Any] = {}
+        for name in self._controllers_to_use():
+            action_name = self._action_name(name)
+            self._clients[name] = self._ActionClient(self._node, self._FollowJointTrajectory, action_name)
+
+    def _controllers_to_use(self) -> list[str]:
+        controllers = [self._left_controller, self._right_controller]
+        if self._include_grippers:
+            controllers.extend([self._left_gripper_controller, self._right_gripper_controller])
+        return [c for c in controllers if c]
+
+    def _action_name(self, controller: str) -> str:
+        if "/" in controller:
+            return controller
+        return f"/{controller}/follow_joint_trajectory"
+
+    def _spin_once(self) -> None:
+        self._rclpy.spin_once(self._node, timeout_sec=0.0)
+
+    def _servo_rad_to_prismatic(self, rad: float) -> float:
+        rad = max(0.0, min(math.pi, float(rad)))
+        return -((rad / math.pi) * 0.025)
+
+    def _build_trajectories(self, artifact: LoadedExecuteArtifact) -> dict[str, Any]:
+        index = {name: idx for idx, name in enumerate(artifact.hardware_joint_order)}
+
+        left_joints = ["j1l", "j2l", "j3l", "j4l", "j5l", "j6l"]
+        right_joints = ["j1r", "j2r", "j3r", "j4r", "j5r", "j6r"]
+        left_gripper = ["j7l1", "j7l2"]
+        right_gripper = ["j7r1", "j7r2"]
+
+        trajectories: dict[str, Any] = {}
+
+        def make_traj(joints: list[str]) -> Any:
+            traj = self._JointTrajectory()
+            traj.joint_names = joints
+            return traj
+
+        def make_point(positions: list[float], t: float) -> Any:
+            pt = self._JointTrajectoryPoint()
+            pt.positions = positions
+            sec = int(t)
+            nsec = int((t - sec) * 1e9)
+            pt.time_from_start = self._Duration(sec=sec, nanosec=nsec)
+            return pt
+
+        left_traj = make_traj(left_joints)
+        right_traj = make_traj(right_joints)
+        left_grip_traj = make_traj(left_gripper)
+        right_grip_traj = make_traj(right_gripper)
+
+        for point in artifact.points:
+            t = max(0.0, float(point.time_from_start_sec))
+            positions = point.positions
+
+            left_pos = [positions[index[j]] if j in index else 0.0 for j in left_joints]
+            right_pos = [positions[index[j]] if j in index else 0.0 for j in right_joints]
+
+            left_traj.points.append(make_point(left_pos, t))
+            right_traj.points.append(make_point(right_pos, t))
+
+            if self._include_grippers:
+                l_servo = positions[index.get("gripper_l_servo", -1)] if "gripper_l_servo" in index else 0.0
+                r_servo = positions[index.get("gripper_r_servo", -1)] if "gripper_r_servo" in index else 0.0
+                l_prism = self._servo_rad_to_prismatic(l_servo)
+                r_prism = self._servo_rad_to_prismatic(r_servo)
+                left_grip_traj.points.append(make_point([l_prism, l_prism], t))
+                right_grip_traj.points.append(make_point([r_prism, r_prism], t))
+
+        trajectories[self._left_controller] = left_traj
+        trajectories[self._right_controller] = right_traj
+        if self._include_grippers:
+            trajectories[self._left_gripper_controller] = left_grip_traj
+            trajectories[self._right_gripper_controller] = right_grip_traj
+
+        return trajectories
+
+    async def execute(
+        self,
+        artifact: LoadedExecuteArtifact,
+        *,
+        pause_checker: Callable[[], bool],
+        on_progress: Callable[[float], Awaitable[None]],
+    ) -> dict[str, Any]:
+        # Build trajectories once
+        trajectories = self._build_trajectories(artifact)
+
+        # Ensure action servers are available
+        for name, client in self._clients.items():
+            if not client.wait_for_server(timeout_sec=5.0):
+                raise RuntimeError(f"Action server not available: {self._action_name(name)}")
+
+        goals: dict[str, Any] = {}
+        goal_futures: dict[str, Any] = {}
+        result_futures: dict[str, Any] = {}
+        goal_handles: dict[str, Any] = {}
+
+        for name, traj in trajectories.items():
+            goal = self._FollowJointTrajectory.Goal()
+            goal.trajectory = traj
+            if self._goal_tolerance > 0.0:
+                goal.goal_time_tolerance = self._Duration(sec=int(self._goal_tolerance), nanosec=int((self._goal_tolerance % 1) * 1e9))
+            goals[name] = goal
+            goal_futures[name] = self._clients[name].send_goal_async(goal)
+
+        started = time.monotonic()
+
+        try:
+            # Wait for all goals to be accepted
+            while goal_futures:
+                for name in list(goal_futures.keys()):
+                    self._spin_once()
+                    if goal_futures[name].done():
+                        handle = goal_futures[name].result()
+                        if not handle or not handle.accepted:
+                            raise RuntimeError(f"Goal rejected by {name}")
+                        goal_handles[name] = handle
+                        result_futures[name] = handle.get_result_async()
+                        goal_futures.pop(name, None)
+                await asyncio.sleep(0.01)
+
+            # Wait for results
+            while result_futures:
+                if pause_checker():
+                    await asyncio.sleep(0.05)
+                    continue
+                self._spin_once()
+                for name in list(result_futures.keys()):
+                    if result_futures[name].done():
+                        result_futures.pop(name, None)
+                elapsed = time.monotonic() - started
+                progress = 1.0 if artifact.total_duration_sec <= 0 else min(1.0, elapsed / artifact.total_duration_sec)
+                await on_progress(progress)
+                await asyncio.sleep(0.02)
+
+            return {
+                "duration_sec": round(max(0.0, time.monotonic() - started), 6),
+                "transport": "ros2_action",
+                "controllers": list(trajectories.keys()),
+            }
+        except asyncio.CancelledError:
+            # Attempt to cancel any active goals.
+            for handle in goal_handles.values():
+                with suppress(Exception):
+                    handle.cancel_goal_async()
+            raise
+
+    def close(self) -> None:
+        try:
+            for client in self._clients.values():
+                self._node.destroy_client(client)
+        except Exception:
+            pass
+        try:
+            self._node.destroy_node()
+        except Exception:
+            pass
+        if self._owned_context:
+            with suppress(Exception):
+                self._rclpy.shutdown()
+
+
 def _coerce_float(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
@@ -418,7 +609,7 @@ def _build_sender() -> _BaseSender:
         return _RosTopicSender()
 
     raise ExecuteArtifactError(
-        "Unsupported DEXTER_TRAJECTORY_EXECUTE_TRANSPORT; expected dry_run, udp_json, or ros2_topic"
+        "Unsupported DEXTER_TRAJECTORY_EXECUTE_TRANSPORT; expected dry_run, udp_json, ros2_topic, or ros2_action"
     )
 
 
@@ -431,6 +622,17 @@ async def run_loaded_execute_artifact(
     hz = max(5.0, _coerce_float(os.getenv("DEXTER_TRAJECTORY_EXECUTE_HZ", "50"), 50.0))
     period = 1.0 / hz
     emit_stop = _truthy_env("DEXTER_TRAJECTORY_EXECUTE_EMIT_STOP", True)
+    transport_mode = os.getenv("DEXTER_TRAJECTORY_EXECUTE_TRANSPORT", "dry_run").strip().lower() or "dry_run"
+    if transport_mode == "ros2_action":
+        action_runner = _RosActionExecutor()
+        try:
+            return await action_runner.execute(
+                artifact,
+                pause_checker=pause_checker,
+                on_progress=on_progress,
+            )
+        finally:
+            action_runner.close()
 
     sender = _build_sender()
     started = time.monotonic()
@@ -480,7 +682,7 @@ async def run_loaded_execute_artifact(
         return {
             "duration_sec": round(max(0.0, time.monotonic() - started), 6),
             "point_count": len(artifact.points),
-            "transport": os.getenv("DEXTER_TRAJECTORY_EXECUTE_TRANSPORT", "dry_run").strip().lower() or "dry_run",
+            "transport": transport_mode,
             "ack_count": ack_count,
             "last_ack": last_ack,
         }

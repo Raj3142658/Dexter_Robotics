@@ -1,0 +1,6 @@
+string filename
+---
+bool success
+string message
+int32 waypoint_count
+float64 duration

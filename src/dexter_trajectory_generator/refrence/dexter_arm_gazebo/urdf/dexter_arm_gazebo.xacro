@@ -1,0 +1,271 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="dexter_arm">
+
+    <!-- Include base robot description (pure geometry only) -->
+    <xacro:include filename="$(find dexter_arm_description)/urdf/dexter_arm.urdf.xacro" />
+
+    <!-- ros2_control for Gazebo -->
+    <ros2_control name="GazeboSystem" type="system">
+      <hardware>
+        <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+      </hardware>
+
+      <!-- LEFT ARM JOINTS -->
+      <joint name="j1l">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="j2l">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="j3l">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="j4l">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="j5l">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="j6l">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <joint name="j7r1">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="j7r2">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="j7l1">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="j7l2">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <!-- RIGHT ARM JOINTS -->
+      <joint name="j1r">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="j2r">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="j3r">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="j4r">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="j5r">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="j6r">
+        <command_interface name="position"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+
+    </ros2_control>
+
+    <!-- Gazebo PID gains for joint position control -->
+    <!-- Upper 3 joints (35kg servos) - Higher P gain for gravity compensation -->
+    <gazebo reference="j1l">
+        <implicitSpringDamper>true</implicitSpringDamper>
+    </gazebo>
+    <gazebo reference="j2l">
+        <implicitSpringDamper>true</implicitSpringDamper>
+    </gazebo>
+    <gazebo reference="j3l">
+        <implicitSpringDamper>true</implicitSpringDamper>
+    </gazebo>
+    
+    <!-- Lower 3 joints (15kg servos) -->
+    <gazebo reference="j4l">
+        <implicitSpringDamper>true</implicitSpringDamper>
+    </gazebo>
+    <gazebo reference="j5l">
+        <implicitSpringDamper>true</implicitSpringDamper>
+    </gazebo>
+    <gazebo reference="j6l">
+        <implicitSpringDamper>true</implicitSpringDamper>
+    </gazebo>
+
+    <!-- Right arm - same as left -->
+    <gazebo reference="j1r">
+        <implicitSpringDamper>true</implicitSpringDamper>
+    </gazebo>
+    <gazebo reference="j2r">
+        <implicitSpringDamper>true</implicitSpringDamper>
+    </gazebo>
+    <gazebo reference="j3r">
+        <implicitSpringDamper>true</implicitSpringDamper>
+    </gazebo>
+    <gazebo reference="j4r">
+        <implicitSpringDamper>true</implicitSpringDamper>
+    </gazebo>
+    <gazebo reference="j5r">
+        <implicitSpringDamper>true</implicitSpringDamper>
+    </gazebo>
+    <gazebo reference="j6r">
+        <implicitSpringDamper>true</implicitSpringDamper>
+    </gazebo>
+
+    <!-- Gazebo ros2_control plugin -->
+    <gazebo>
+        <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+            <parameters>$(find dexter_arm_control)/config/controllers.yaml</parameters>
+        </plugin>
+    </gazebo>
+
+    <!-- Gazebo-specific properties for links - ALL ORANGE -->
+    <gazebo reference="base_link">
+        <material>Gazebo/Orange</material>
+        <mu1>0.2</mu1>
+        <mu2>0.2</mu2>
+    </gazebo>
+
+    <!-- Left arm links -->
+    <gazebo reference="l1l">
+        <material>Gazebo/Orange</material>
+        <mu1>0.2</mu1>
+        <mu2>0.2</mu2>
+    </gazebo>
+
+    <gazebo reference="l2l">
+        <material>Gazebo/Orange</material>
+        <mu1>0.2</mu1>
+        <mu2>0.2</mu2>
+    </gazebo>
+
+    <gazebo reference="l3l">
+        <material>Gazebo/Orange</material>
+        <mu1>0.2</mu1>
+        <mu2>0.2</mu2>
+    </gazebo>
+
+    <gazebo reference="l4l">
+        <material>Gazebo/Orange</material>
+        <mu1>0.2</mu1>
+        <mu2>0.2</mu2>
+    </gazebo>
+
+    <gazebo reference="l5l">
+        <material>Gazebo/Orange</material>
+        <mu1>0.2</mu1>
+        <mu2>0.2</mu2>
+    </gazebo>
+
+    <gazebo reference="l6l">
+        <material>Gazebo/Orange</material>
+        <mu1>0.8</mu1>
+        <mu2>0.8</mu2>
+    </gazebo>
+
+
+
+
+    <!-- Right arm links -->
+    <gazebo reference="l1r">
+        <material>Gazebo/Orange</material>
+        <mu1>0.2</mu1>
+        <mu2>0.2</mu2>
+    </gazebo>
+
+    <gazebo reference="l2r">
+        <material>Gazebo/Orange</material>
+        <mu1>0.2</mu1>
+        <mu2>0.2</mu2>
+    </gazebo>
+
+    <gazebo reference="l3r">
+        <material>Gazebo/Orange</material>
+        <mu1>0.2</mu1>
+        <mu2>0.2</mu2>
+    </gazebo>
+
+    <gazebo reference="l4r">
+        <material>Gazebo/Orange</material>
+        <mu1>0.2</mu1>
+        <mu2>0.2</mu2>
+    </gazebo>
+
+    <gazebo reference="l5r">
+        <material>Gazebo/Orange</material>
+        <mu1>0.2</mu1>
+        <mu2>0.2</mu2>
+    </gazebo>
+
+    <gazebo reference="l6r">
+        <material>Gazebo/Orange</material>
+        <mu1>0.8</mu1>
+        <mu2>0.8</mu2>
+    </gazebo>
+
+    <!-- Left Gripper Components -->
+    <gazebo reference="l6l_base1">
+        <material>Gazebo/Orange</material>
+    </gazebo>
+
+    <gazebo reference="l6l_rail">
+        <material>Gazebo/Orange</material>
+    </gazebo>
+
+    <gazebo reference="l6l_finger">
+        <material>Gazebo/Orange</material>
+    </gazebo>
+
+    <gazebo reference="l6l_finger2">
+        <material>Gazebo/Orange</material>
+    </gazebo>
+
+    <!-- Right Gripper Components -->
+    <gazebo reference="l6r_base1">
+        <material>Gazebo/Orange</material>
+    </gazebo>
+
+    <gazebo reference="l6r_rail">
+        <material>Gazebo/Orange</material>
+    </gazebo>
+
+    <gazebo reference="l6r_finger">
+        <material>Gazebo/Orange</material>
+    </gazebo>
+
+    <gazebo reference="l6r_finger2">
+        <material>Gazebo/Orange</material>
+    </gazebo>
+
+
+
+</robot>

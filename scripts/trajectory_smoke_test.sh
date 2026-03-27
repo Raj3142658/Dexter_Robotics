@@ -4,6 +4,7 @@ set -euo pipefail
 MW_URL="${DEXTER_MIDDLEWARE_URL:-http://127.0.0.1:8080}"
 TMP_DIR="${TMPDIR:-/tmp}"
 OUT_FILE="${TMP_DIR}/dexter_trajectory_smoke_$$.yaml"
+export DEXTER_TRAJECTORY_GENERATION_MODE="${DEXTER_TRAJECTORY_GENERATION_MODE:-native}"
 
 echo "[1/22] Start bridge via middleware"
 curl -sS -m 8 -X POST "${MW_URL}/trajectory/backend/start" >/dev/null

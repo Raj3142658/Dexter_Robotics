@@ -32,6 +32,7 @@ class GazeboStartRequest(BaseModel):
 class FullStackStartRequest(BaseModel):
     use_rviz: bool = True
     load_moveit: bool = True
+    gazebo_gui: bool = True
 
 
 class HardwareBootstrapStartRequest(BaseModel):
@@ -48,6 +49,7 @@ class CleanupRequest(BaseModel):
     serial_port: str = Field(default="/dev/ttyUSB0")
     include_port_cleanup: bool = True
     include_serial_cleanup: bool = True
+    include_ros_cleanup: bool = True
 
 
 class FirmwareUploadStartRequest(BaseModel):

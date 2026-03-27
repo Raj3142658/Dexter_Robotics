@@ -236,7 +236,10 @@ void command_callback(const void *msgin) {
     uint16_t target;
     joints[i].position = msg->data.data[i];
 
-    if (i == 1 || i == 3 || i == 4)
+    // Invert left arm joints (1, 3, 4) and right arm mirrored joints (8, 9, 10, 11)
+    // due to reversed Z-axis in URDF for mechanical symmetry
+    if (i == 1 || i == 3 || i == 4 ||    // Left arm inversions
+        i == 8 || i == 9 || i == 10 || i == 11)  // Right arm inversions (j2r, j3r, j4r, j5r)
       target = radians_to_pwm(-joints[i].position, i);
     else
       target = radians_to_pwm(joints[i].position, i);

@@ -1,0 +1,17 @@
+# MoveIt Fake Controllers - for demo mode only
+
+controller_manager:
+  ros__parameters:
+    update_rate: 100
+
+    # Fake controller manager
+    moveit_fake_controller_manager:
+      type: moveit_fake_controller_manager/MoveItFakeControllerManager
+
+# Fake controllers configuration
+moveit_fake_controller_manager:
+  ros__parameters:
+    left_arm_controller:
+      type: Fake
+    right_arm_controller:
+      type: Fake
