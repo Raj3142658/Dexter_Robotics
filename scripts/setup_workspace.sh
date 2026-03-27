@@ -211,9 +211,52 @@ update-desktop-database "$APPS_DIR" 2>/dev/null || true
 echo ""
 
 # ============================================================================
-# STEP 8: Setup Middleware Python Environment
+# STEP 8: Verify Recent Fixes and Updates
 # ============================================================================
-echo -e "${BLUE}[8/9] Setting up middleware FastAPI environment...${NC}"
+echo -e "${BLUE}[8/10] Verifying recent hardware improvements...${NC}"
+
+# Check for gripper execution fix (effort and velocity non-zero)
+if grep -q 'effort="20"' "$WORKSPACE_DIR/src/dexter_arm_description/urdf/dexter_arm.urdf.xacro" 2>/dev/null; then
+  echo -e "${GREEN}✓ Gripper execution fix detected (effort/velocity enabled)${NC}"
+else
+  echo -e "${YELLOW}⚠️  Gripper execution fix may not be present${NC}"
+fi
+
+# Check for right arm inversion in firmware
+if grep -q 'i == 8 || i == 9 || i == 10 || i == 11' "$WORKSPACE_DIR/src/dexter_arm_hardware/firmware/esp32_firmware_wireless.ino" 2>/dev/null; then
+  echo -e "${GREEN}✓ Right arm joint inversion fix detected in firmware${NC}"
+else
+  echo -e "${YELLOW}⚠️  Right arm inversion fix not found - ESP32 firmware may need update${NC}"
+fi
+
+# Check for SRDF collision matrix update
+if grep -q 'l7l1' "$WORKSPACE_DIR/src/dexter_arm_moveit_config/config/dexter_arm.srdf" 2>/dev/null; then
+  echo -e "${GREEN}✓ SRDF collision matrix updated for new gripper links (l7*)${NC}"
+else
+  echo -e "${YELLOW}⚠️  SRDF may not have gripper link updates${NC}"
+fi
+
+# Check for TCP collision geometry
+if grep -q 'tool0_left' "$WORKSPACE_DIR/src/dexter_arm_description/urdf/dexter_arm.urdf.xacro" 2>/dev/null && \
+   grep -q '<collision>' "$WORKSPACE_DIR/src/dexter_arm_description/urdf/dexter_arm.urdf.xacro" 2>/dev/null; then
+  echo -e "${GREEN}✓ TCP collision geometry present${NC}"
+else
+  echo -e "${YELLOW}⚠️  TCP collision geometry may be missing${NC}"
+fi
+
+# Check for force-kill agent button in UI
+if grep -q 'hardwareForceKillAgent' "$WORKSPACE_DIR/src/dexter_temp_ui/index.html" 2>/dev/null; then
+  echo -e "${GREEN}✓ Force-kill agent button added to Hardware Console UI${NC}"
+else
+  echo -e "${YELLOW}⚠️  Force-kill agent button not found in UI${NC}"
+fi
+
+echo ""
+
+# ============================================================================
+# STEP 9: Setup Middleware Python Environment
+# ============================================================================
+echo -e "${BLUE}[9/10] Setting up middleware FastAPI environment...${NC}"
 if [ ! -d "$MIDDLEWARE_DIR" ]; then
   echo -e "${RED}✗ Middleware directory not found at: $MIDDLEWARE_DIR${NC}"
   exit 1
@@ -249,7 +292,7 @@ deactivate
 echo ""
 
 # ============================================================================
-# STEP 9: Summary and Next Steps
+# STEP 10: Summary and Next Steps
 # ============================================================================
 echo -e "${GREEN}╔════════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║           ✓ SETUP COMPLETED SUCCESSFULLY              ║${NC}"
@@ -265,9 +308,16 @@ echo "2. Or activate workspace manually:"
 echo -e "   ${YELLOW}cd $WORKSPACE_DIR${NC}"
 echo -e "   ${YELLOW}source install/setup.bash${NC}"
 echo ""
-echo "3. Optional: Setup ESP32 firmware"
+echo "3. ⚠️  IMPORTANT - Setup ESP32 firmware (required for real hardware):"
+echo -e "   ${YELLOW}# Recent updates:${NC}"
+echo -e "   ${YELLOW}#   - Right arm joint inversion fix for proper sync${NC}"
+echo -e "   ${YELLOW}#   - Gripper default open pose at startup${NC}"
+echo -e "   ${YELLOW}#${NC}"
 echo -e "   ${YELLOW}# Flash src/dexter_arm_hardware/firmware/esp32_firmware_wireless.ino${NC}"
 echo -e "   ${YELLOW}# to your ESP32 using Arduino IDE or PlatformIO${NC}"
+echo -e "   ${YELLOW}#${NC}"
+echo -e "   ${YELLOW}# OTA Upload: Ensure ESP32 WiFi credentials match firmware config${NC}"
+echo -e "   ${YELLOW}# After upload: Restart hardware_bringup to test arm/gripper sync${NC}"
 echo ""
 echo "4. Launch the control center:"
 echo -e "   ${YELLOW}bash scripts/launch_control_center.sh${NC}"
@@ -277,6 +327,23 @@ echo -e "   ${YELLOW}http://127.0.0.1:8090${NC}"
 echo ""
 echo "6. API documentation:"
 echo -e "   ${YELLOW}http://127.0.0.1:8080/docs${NC}"
+echo ""
+echo -e "${BLUE}Recent Updates & Features:${NC}"
+echo "   • ✓ Right arm joint inversion fix (ESP32 firmware) - Ensures arm_controller syncs properly"
+echo "   • ✓ Gripper execution enabled - Set effort='20' velocity='0.2' for j7l1/j7l2/j7r1/j7r2"
+echo "   • ✓ Gripper default open pose - Grippers open at startup in both simulation and hardware"
+echo "   • ✓ Force-kill agent button - Emergency UI control for micro-ROS agent (Hardware Console tab)"
+echo "   • ✓ SRDF collision matrix updated - Removed stale l6* references, added l7* adjacent disables"
+echo "   • ✓ TCP collision geometry added - Gripper tool frames now have collision shapes"
+echo ""
+echo -e "${BLUE}Testing Checklist:${NC}"
+echo "   [  ] Build completed successfully (colcon build)"
+echo "   [  ] Hardware plugin compiled: libdexter_hardware_interface.so"
+echo "   [  ] ESP32 firmware flashed (if using real hardware)"
+echo "   [  ] Simulation test: ros2 launch dexter_arm_gazebo gazebo_bringup.launch.py"
+echo "   [  ] Hardware test: ros2 launch dexter_arm_hardware hardware_bringup.launch.py"
+echo "   [  ] Verify: grippers open pose at startup"
+echo "   [  ] Verify: arm_controller and gripper_controller both respond to commands"
 echo ""
 echo -e "${BLUE}Desktop Application:${NC}"
 echo "   Location: $DESKTOP_FILE"
